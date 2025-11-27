@@ -132,7 +132,7 @@ class HuobiClient:
         resp = requests.get(self.base_url + path, params={"contract_code": symbol}, verify=False, timeout=10)
         return resp.json()
 
-    def place_cross_order(self, symbol, direction, offset, volume, price=None):
+    def place_cross_order(self, symbol, direction, offset, volume, price, take_profit, stop_loss):
         """
         下单
         :param direction: 'buy' or 'sell'
@@ -140,6 +140,7 @@ class HuobiClient:
         :param volume: 张数 (整数)
         :param price: 价格 (如果是对手价或市价，可为None)
         """
+        print("下单参数:", locals())
         path = "/linear-swap-api/v1/swap_cross_order"
 
         # 价格类型转换逻辑
@@ -153,7 +154,11 @@ class HuobiClient:
             "direction": direction,
             "offset": offset,
             "lever_rate": 200,
-            "order_price_type": price_type
+            "order_price_type": price_type,
+            "tp_trigger_price": take_profit,
+            "tp_order_price": take_profit,
+            "sl_trigger_price": stop_loss,
+            "sl_order_price": stop_loss
         }
 
         if price and price > 0:

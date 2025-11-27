@@ -48,12 +48,18 @@ class GeminiClient:
             content = result['choices'][0]['message']['content']
 
             # 清洗 markdown json
-            content = content.replace('```json', '').replace('```', '').strip()
-            match = re.search(r'\{.*}', content, re.S)
-            if match:
-                content = match.group(0)
-            else:
-                content = "{}"
+            # content = content.replace('```json', '').replace('```', '').strip()
+            blocks = re.findall(r'\{.*?}', content, re.S)
+
+            for block in blocks:
+                try:
+                    obj = json.loads(block)
+                    if "summary" in obj:
+                        content = block
+                        print("Gemini API Response:", obj)
+                        break
+                except:
+                    pass
 
             return json.loads(content)
         except Exception as e:

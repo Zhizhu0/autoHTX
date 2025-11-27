@@ -1,3 +1,5 @@
+import math
+
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -95,6 +97,9 @@ def construct_prompt(info_text):
 你只会回复JSON格式的字符串，不会回复其他任何内容。
 不得进行任何形式的自我反思、自我纠正。
 不得输出思考过程。所有推理都必须在内部完成。
+禁止使用markdown标记，如果使用，我会将其标记为无效。
+禁止输出空内容，如果不需要操作，参考后面的无操作输出。
+现在时间为：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 请利用 Google Search 搜索最新的以太坊相关新闻、宏观经济数据。
 结合我提供的 4 张图表（15m, 1h, 4h, 1d）进行技术分析，并给出具体操作。
 请注意，每次给你提供的数据间隔将会达到1小时，市场瞬息万变，不仅结合搜索结果和我提供的图表与仓位信息，还要考虑到下一次更新操作时间在一小时以后，无法实时盯盘，请充分思考过后再进行操作。
@@ -112,6 +117,8 @@ JSON 结构必须严格如下：
 其中 do 的数量一般不超过4个，即开仓时最多同时两个做多和两个做空，平仓时最多同时平两个做多和两个做空。如果不需要操作，do应为空数组，但是一定要返回summary和空的do，而不是什么都不输出。
 即不需要操作时，返回{{"summary":"{{{{无操作的理由}}}}","do":[]}}
 请务必返回纯净的JSON。
+务必返回纯净的JSON。
+返回纯净的JSON，禁止使用markdown。
 """
     return prompt
 
@@ -122,9 +129,10 @@ async def execute_trade_action(action, positions):
     price = float(action.get('price', 0))
     level = int(action.get('amount_level', 0))
     order_id = action.get('order_id')
+    take_profit = float(action.get('take_profit', 0))
+    stop_loss = float(action.get('stop_loss', 0))
 
-    # 仓位映射 (简单版: 1->1张, 2->5张, 3->10张) - 请根据资金量自行调整
-    vol_map = {0: 1, 1: 1, 2: 5, 3: 10}
+    vol_map = {0: 1, 1: 5, 2: 10, 3: 20}
     volume = vol_map.get(level, 1)
 
     log_msg = f"执行: {act_type} | 价格:{price} | 级别:{level}"
@@ -132,18 +140,38 @@ async def execute_trade_action(action, positions):
 
     try:
         if act_type == "GO_LONG":
-            return huobi.place_cross_order(SYMBOL, "buy", "open", volume, price)
+            return huobi.place_cross_order(SYMBOL, "buy", "open", volume, price, take_profit, stop_loss)
 
         elif act_type == "GO_SHORT":
-            return huobi.place_cross_order(SYMBOL, "sell", "open", volume, price)
+            return huobi.place_cross_order(SYMBOL, "sell", "open", volume, price, take_profit, stop_loss)
 
         elif act_type == "CLOSE_LONG":
-            # 查找持仓，全平或按比例平
-            # 这里简化为: 如果有对应方向持仓，按 volume 平仓
-            return huobi.place_cross_order(SYMBOL, "sell", "close", volume, price)
+            volume = 0
+            for pos in positions:
+                if pos['direction'] == "buy":
+                    if level == 0:
+                        volume = 0
+                    elif level == 1:
+                        volume = math.floor(int(pos['volume']) * 0.3)
+                    elif level == 2:
+                        volume = math.floor(int(pos['volume']) * 0.5)
+                    elif level == 3:
+                        volume = pos['volume']
+                    return huobi.place_cross_order(SYMBOL, "sell", "close", volume, price, take_profit, stop_loss)
 
         elif act_type == "CLOSE_SHORT":
-            return huobi.place_cross_order(SYMBOL, "buy", "close", volume, price)
+            volume = 0
+            for pos in positions:
+                if pos['direction'] == "sell":
+                    if level == 0:
+                        volume = 0
+                    elif level == 1:
+                        volume = math.floor(int(pos['volume']) * 0.3)
+                    elif level == 2:
+                        volume = math.floor(int(pos['volume']) * 0.5)
+                    elif level == 3:
+                        volume = pos['volume']
+                    return huobi.place_cross_order(SYMBOL, "buy", "close", volume, price, take_profit, stop_loss)
 
         elif act_type == "CANCEL":
             if order_id:
@@ -153,6 +181,7 @@ async def execute_trade_action(action, positions):
 
     except Exception as e:
         db.add_log("EXEC_ERR", str(e))
+        print(e)
 
 
 async def run_automated_trading():
@@ -187,8 +216,12 @@ async def run_automated_trading():
 
         db.add_log("SUCCESS", "流程执行完毕")
 
+        now = datetime.now()
+        db.set_config("last_run_hour", str(now.hour))
+
     except Exception as e:
         db.add_log("ERROR", f"自动流程异常: {str(e)}")
+        print(e)
 
 
 # --- 调度器 ---
@@ -216,7 +249,7 @@ async def scheduler_loop():
                 await run_automated_trading()
 
                 # 更新状态
-                db.set_config("last_run_hour", str(current_hour))
+                # db.set_config("last_run_hour", str(current_hour))
 
         except Exception as e:
             print(f"Scheduler Error: {e}")
