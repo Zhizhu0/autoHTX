@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>System Logs</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; display: flex; flex-direction: column; height: 90vh; }
+        textarea { flex: 1; background: #1e1e1e; color: #00ff00; font-family: monospace; padding: 10px; resize: none; }
+    </style>
+</head>
+<body>
+    <a href="/" style="margin-bottom:10px;">← Back</a>
+    <textarea id="logArea" readonly>{{ log_text }}</textarea>
+    <script>
+        const area = document.getElementById('logArea');
+        area.scrollTop = area.scrollHeight;
+    </script>
+</body>
+</html>

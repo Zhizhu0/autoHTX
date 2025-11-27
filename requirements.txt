@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+requests
+pandas
+matplotlib
+mplfinance
+jinja2
+python-multipart

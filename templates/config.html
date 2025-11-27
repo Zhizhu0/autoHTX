@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Configuration</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; }
+        .group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 100%; padding: 8px; box-sizing: border-box; }
+        .back { margin-bottom: 20px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <a href="/" class="back">← Back to Home</a>
+    <h2>API Configuration</h2>
+
+    <div class="group">
+        <label>Gemini AI Key</label>
+        <input type="password" id="geminiKey" oninput="save('geminiKey', this.value)">
+    </div>
+    <div class="group">
+        <label>Huobi Access Key</label>
+        <input type="password" id="accessKey" oninput="save('accessKey', this.value)">
+    </div>
+    <div class="group">
+        <label>Huobi Secret Key</label>
+        <input type="password" id="secretKey" oninput="save('secretKey', this.value)">
+    </div>
+
+    <script>
+        const map = {
+            'geminiKey': 'getAIKey',
+            'accessKey': 'getAccessKey',
+            'secretKey': 'getSecretKey'
+        };
+
+        // Load init values
+        for (let id in map) {
+            fetch(`/api/get_key/${map[id]}`)
+                .then(r => r.json())
+                .then(d => { document.getElementById(id).value = d.value; });
+        }
+
+        function save(key, value) {
+            fetch('/api/set_key', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({key: key, value: value})
+            });
+        }
+    </script>
+</body>
+</html>
