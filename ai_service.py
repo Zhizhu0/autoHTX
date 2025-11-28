@@ -8,7 +8,7 @@ from storage import db
 class GeminiClient:
     def __init__(self):
         self.api_url = "https://api.gemai.cc/v1/chat/completions"
-        self.model = "[满血A]gemini-3-pro-preview-thinking"  # 保持与原文件一致的模型名
+        self.model = "[满血A]gemini-3-pro-preview"  # 保持与原文件一致的模型名
 
     def get_analysis(self, prompt_text, images_base64):
         api_key = db.get_config("gemini_key")

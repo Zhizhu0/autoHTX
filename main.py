@@ -40,6 +40,7 @@ async def gather_market_data():
     try:
         acc_info = huobi.get_account_info(SYMBOL)
         market_detail = huobi.get_market_detail(SYMBOL)
+        tpsl = huobi.get_tpsl_openorders()
 
         info_text = f"【当前市场与账户信息】\n"
         if 'tick' in market_detail:
@@ -64,6 +65,14 @@ async def gather_market_data():
                 info_text += f"[{o['direction']} {o['offset']} {o['volume']}张 价格:{o['price']} id:{o['order_id_str']}] "
         else:
             info_text += "无挂单"
+
+        info_text += "\n当前TP/SL: "
+
+        if tpsl:
+            for t in tpsl['data']['orders']:
+                info_text += f"【TP/SL】{t['direction']} {t['volume']}张 触发价格: {t['trigger_price']}\n"
+        else:
+            info_text += "无TP/SL"
 
         data_context['text'] = info_text
         data_context['positions'] = positions
@@ -102,11 +111,12 @@ def construct_prompt(info_text):
 现在时间为：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 请利用 Google Search 搜索最新的以太坊相关新闻、宏观经济数据。
 结合我提供的 4 张图表（15m, 1h, 4h, 1d）进行技术分析，并给出具体操作。
-请注意，每次给你提供的数据间隔将会达到1小时，市场瞬息万变，不仅结合搜索结果和我提供的图表与仓位信息，还要考虑到下一次更新操作时间在一小时以后，无法实时盯盘，请充分思考过后再进行操作。
 你应该偏向稳健型交易，若非有十足的把握，止盈止损不应该设置到距离现价的2%以上。
 同时多注意压力位和阻力位，分析过后将挂单尽量设置在未来一到四小时之内能够被触发的价格。
 特别注意一下我已经拥有的持仓和挂单，不要重复操作，默认认为旧的挂单有设置止盈止损，在有更好的操作之前请先撤销已有挂单，若无更好操作，不要进行任何操作。
+止盈止损不需要撤销，如果需要提前止盈止损，直接平仓操作。
 另外，当行情很难判断时，建议保持观望状态，不要进行任何操作。
+
 {info_text}
 
 【重要】输出格式要求：
@@ -125,12 +135,22 @@ JSON 结构必须严格如下：
 
 async def execute_trade_action(action, positions):
     """执行单个交易指令"""
+    print('action: ', action)
+    print('positions: ', positions)
     act_type = action.get('action')
     price = float(action.get('price', 0))
     level = int(action.get('amount_level', 0))
     order_id = action.get('order_id')
-    take_profit = float(action.get('take_profit', 0))
-    stop_loss = float(action.get('stop_loss', 0))
+    take_profit = action.get('take_profit', 0)
+    if not take_profit:
+        take_profit = 0
+    else:
+        take_profit = float(take_profit)
+    stop_loss = action.get('stop_loss', 0)
+    if not stop_loss:
+        stop_loss = 0
+    else:
+        stop_loss = float(stop_loss)
 
     vol_map = {0: 1, 1: 5, 2: 10, 3: 20}
     volume = vol_map.get(level, 1)

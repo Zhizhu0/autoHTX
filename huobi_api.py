@@ -126,6 +126,10 @@ class HuobiClient:
             "orders": order_res.get("data", {}).get("orders", [])
         }
 
+    def get_tpsl_openorders(self):
+        path = "/linear-swap-api/v1/swap_cross_tpsl_openorders"
+        return self._request("POST", path)
+
     def get_market_detail(self, symbol):
         path = "/linear-swap-ex/market/detail/merged"
         # 加上 verify=False
@@ -147,19 +151,30 @@ class HuobiClient:
         price_type = "limit"
         if not price or price == 0:
             price_type = "market"
+        params = {}
 
-        params = {
-            "contract_code": symbol,
-            "volume": int(volume),
-            "direction": direction,
-            "offset": offset,
-            "lever_rate": 200,
-            "order_price_type": price_type,
-            "tp_trigger_price": take_profit,
-            "tp_order_price": take_profit,
-            "sl_trigger_price": stop_loss,
-            "sl_order_price": stop_loss
-        }
+        if offset == 'close':
+            params = {
+                "contract_code": symbol,
+                "volume": int(volume),
+                "direction": direction,
+                "offset": offset,
+                "lever_rate": 200,
+                "order_price_type": price_type,
+            }
+        else:
+            params = {
+                "contract_code": symbol,
+                "volume": int(volume),
+                "direction": direction,
+                "offset": offset,
+                "lever_rate": 200,
+                "order_price_type": price_type,
+                "tp_trigger_price": take_profit,
+                "tp_order_price": take_profit,
+                "sl_trigger_price": stop_loss,
+                "sl_order_price": stop_loss
+            }
 
         if price and price > 0:
             params["price"] = price
