@@ -8,7 +8,7 @@ from storage import db
 class GeminiClient:
     def __init__(self):
         self.api_url = "https://api.gemai.cc/v1/chat/completions"
-        self.model = "[满血A]gemini-3-pro-preview"  # 保持与原文件一致的模型名
+        self.model = "[满血A]gemini-3-pro-preview"
 
     def get_analysis(self, prompt_text, images_base64):
         api_key = db.get_config("gemini_key")
@@ -48,7 +48,6 @@ class GeminiClient:
             content = result['choices'][0]['message']['content']
 
             # 清洗 markdown json
-            # content = content.replace('```json', '').replace('```', '').strip()
             blocks = re.findall(r'\{.*?}', content, re.S)
 
             for block in blocks:
@@ -56,7 +55,6 @@ class GeminiClient:
                     obj = json.loads(block)
                     if "summary" in obj:
                         content = block
-                        print("Gemini API Response:", obj)
                         break
                 except:
                     pass

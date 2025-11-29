@@ -1,5 +1,3 @@
---- START OF FILE config.html ---
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -41,6 +39,18 @@
             </label>
         </div>
         <div class="desc">If disabled, the bot will not perform any actions.</div>
+    </div>
+
+    <!-- Skip AI Check -->
+    <div class="group">
+        <div class="row">
+            <label style="margin:0">Skip AI Analysis when Holding</label>
+            <label class="switch">
+                <input type="checkbox" id="skipWhenHolding" onchange="saveCheck('skipWhenHolding', this.checked)">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div class="desc">If enabled, the bot will skip AI analysis loop if there are open positions.</div>
     </div>
 
     <div class="group">
@@ -87,6 +97,12 @@
     <!-- API Keys -->
     <h3>API Keys</h3>
     <div class="group">
+        <label>Huobi API Base URL</label>
+        <input type="text" id="huobiUrl" placeholder="https://api.hbdm.com" oninput="saveVal('huobiUrl', this.value)">
+        <div class="desc">Default: https://api.hbdm.com</div>
+    </div>
+
+    <div class="group">
         <label>Gemini AI Key</label>
         <input type="password" id="geminiKey" oninput="saveVal('geminiKey', this.value)">
     </div>
@@ -105,9 +121,11 @@
             'accessKey': 'getAccessKey',
             'secretKey': 'getSecretKey',
             'systemStatus': 'getSystemStatus',
+            'skipWhenHolding': 'getSkipHolding',
             'tradeInterval': 'getInterval',
             'tradeSymbol': 'getSymbol',
             'tradeLeverage': 'getLeverage',
+            'huobiUrl': 'getHuobiUrl',
             'volLevel0': 'getVol0',
             'volLevel1': 'getVol1',
             'volLevel2': 'getVol2',

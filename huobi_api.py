@@ -1,5 +1,3 @@
-# --- START OF FILE huobi_api.py ---
-
 import requests
 import hmac
 import hashlib
@@ -16,7 +14,12 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class HuobiClient:
     def __init__(self):
-        self.base_url = "https://api.hbdm.com"
+        # 动态获取 API URL (用于发送请求)
+        url = db.get_config("huobi_api_url")
+        if not url:
+            url = "https://api.hbdm.com"
+        # 确保没有尾部斜杠
+        self.base_url = url.rstrip('/')
 
     def _get_keys(self):
         access_key = db.get_config("access_key")
@@ -39,7 +42,12 @@ class HuobiClient:
         sorted_params = sorted(params.items(), key=lambda d: d[0], reverse=False)
         query_string = urllib.parse.urlencode(sorted_params)
 
-        payload = [method, "api.hbdm.com", path, query_string]
+        # 【关键修正】
+        # 签名时必须使用官方 Host "api.hbdm.com"，即使请求是发往反向代理的。
+        # 如果这里使用 self.base_url 的域名，火币服务端会验签失败 (403)。
+        host = "api.hbdm.com"
+
+        payload = [method, host, path, query_string]
         payload_str = "\n".join(payload)
 
         signature = base64.b64encode(
@@ -54,13 +62,18 @@ class HuobiClient:
             params = {}
 
         try:
+            # 请求发往配置的 base_url (例如代理地址)
             full_url = f"{self.base_url}{path}"
+
             if method == "GET":
                 params = self._sign("GET", path, params)
                 resp = requests.get(full_url, params=params, timeout=10, verify=False)
             else:
+                # POST 请求签名
                 sign_params = self._sign("POST", path, {})
+                # 将签名参数附加到 URL 上
                 full_url = f"{full_url}?{urllib.parse.urlencode(sign_params)}"
+                # Body 数据直接作为 json 发送
                 resp = requests.post(full_url, json=params, headers={'Content-Type': 'application/json'}, timeout=10,
                                      verify=False)
 
@@ -85,6 +98,7 @@ class HuobiClient:
         params = {"contract_code": symbol, "period": req_period, "size": size}
 
         try:
+            # Kline 接口是公开的，通常不需要签名，直接发往 base_url
             resp = requests.get(self.base_url + path, params=params, verify=False, timeout=10)
             data = resp.json()
             if data.get('status') == 'ok':
@@ -113,12 +127,12 @@ class HuobiClient:
         }
 
     def get_tpsl_openorders(self, symbol):
-        # 这里的接口通常需要 symbol，原代码可能漏了或者接口设计不同，建议补上
         path = "/linear-swap-api/v1/swap_cross_tpsl_openorders"
         return self._request("POST", path, {"contract_code": symbol})
 
     def get_market_detail(self, symbol):
         path = "/linear-swap-ex/market/detail/merged"
+        # 同样使用配置的 base_url
         resp = requests.get(self.base_url + path, params={"contract_code": symbol}, verify=False, timeout=10)
         return resp.json()
 

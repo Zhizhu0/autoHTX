@@ -1,5 +1,3 @@
-# --- START OF FILE main.py ---
-
 import math
 import os
 import time
@@ -249,6 +247,15 @@ async def run_automated_trading():
     try:
         # 1. 准备数据
         context, images = await gather_market_data(symbol)
+
+        # --- 新增：检查是否需要跳过 AI 分析 (如果有持仓) ---
+        skip_when_holding = db.get_config("skip_when_holding") == "true"
+        current_positions = context.get('positions', [])
+
+        if skip_when_holding and len(current_positions) > 0:
+            db.add_log("SYSTEM", "检测到当前有持仓，且配置了[有持仓跳过AI分析]，流程结束。")
+            return
+
         prompt = construct_prompt(context['text'])
 
         # 2. 调用 AI
@@ -337,6 +344,9 @@ CONFIG_MAP = {
     "getInterval": "trade_interval",
     "getSymbol": "trade_symbol",
     "getLeverage": "trade_leverage",
+    "getHuobiUrl": "huobi_api_url",
+    # 新增映射
+    "getSkipHolding": "skip_when_holding",
     # 张数映射
     "getVol0": "vol_level_0",
     "getVol1": "vol_level_1",
@@ -352,6 +362,9 @@ REVERSE_CONFIG_MAP = {
     "tradeInterval": "trade_interval",
     "tradeSymbol": "trade_symbol",
     "tradeLeverage": "trade_leverage",
+    "huobiUrl": "huobi_api_url",
+    # 新增映射
+    "skipWhenHolding": "skip_when_holding",
     # 张数映射
     "volLevel0": "vol_level_0",
     "volLevel1": "vol_level_1",
@@ -367,9 +380,11 @@ async def get_key(key_name: str):
 
     # 设置默认值
     if key_name == "getSystemStatus" and val == "": val = "false"
+    if key_name == "getSkipHolding" and val == "": val = "false"  # 默认为关闭
     if key_name == "getInterval" and val == "": val = "60"
     if key_name == "getSymbol" and val == "": val = "ETH-USDT"
     if key_name == "getLeverage" and val == "": val = "5"
+    if key_name == "getHuobiUrl" and val == "": val = "https://api.hbdm.com"
 
     # 张数默认值
     if key_name == "getVol0" and val == "": val = "1"
