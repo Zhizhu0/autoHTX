@@ -1,4 +1,8 @@
+# --- START OF FILE main.py ---
+
 import math
+import os
+import time
 
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
@@ -14,35 +18,50 @@ from chart_engine import ChartGenerator
 from ai_service import GeminiClient
 
 app = FastAPI()
-templates = Jinja2Templates(directory="templates")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 huobi = HuobiClient()
 chart_gen = ChartGenerator()
 ai = GeminiClient()
-SYMBOL = "ETH-USDT"
+
+
+def get_current_settings():
+    """获取当前配置的交易对、杠杆、开关等"""
+    symbol = db.get_config("trade_symbol")
+    if not symbol:
+        symbol = "ETH-USDT"
+
+    leverage = db.get_config("trade_leverage")
+    if not leverage:
+        leverage = 5
+    else:
+        leverage = int(leverage)
+
+    return symbol, leverage
 
 
 # --- 核心业务逻辑 ---
 
-async def gather_market_data():
-    """收集数据并生成图表 (复用逻辑)"""
+async def gather_market_data(symbol):
+    """收集数据并生成图表"""
     data_context = {}
     chart_images = []
 
     # 1. K线与图表
     periods = [('15min', '15min'), ('1hour', '1hour'), ('4hour', '4hour'), ('1day', '1day')]
     for pid, p_name in periods:
-        df = huobi.get_kline(SYMBOL, pid)
-        img = chart_gen.generate_chart_base64(df, f"{SYMBOL} {p_name}")
+        df = huobi.get_kline(symbol, pid)
+        img = chart_gen.generate_chart_base64(df, f"{symbol} {p_name}")
         chart_images.append(img)
 
     # 2. 账户信息
     try:
-        acc_info = huobi.get_account_info(SYMBOL)
-        market_detail = huobi.get_market_detail(SYMBOL)
-        tpsl = huobi.get_tpsl_openorders()
+        acc_info = huobi.get_account_info(symbol)
+        market_detail = huobi.get_market_detail(symbol)
+        tpsl = huobi.get_tpsl_openorders(symbol)
 
-        info_text = f"【当前市场与账户信息】\n"
+        info_text = f"【当前 {symbol} 市场与账户信息】\n"
         if 'tick' in market_detail:
             tick = market_detail['tick']
             info_text += f"24H最高: {tick.get('high')}, 24H最低: {tick.get('low')}, 现价: {tick.get('close')}\n"
@@ -68,9 +87,13 @@ async def gather_market_data():
 
         info_text += "\n当前TP/SL: "
 
-        if tpsl:
-            for t in tpsl['data']['orders']:
-                info_text += f"【TP/SL】{t['direction']} {t['volume']}张 触发价格: {t['trigger_price']}\n"
+        if tpsl and 'data' in tpsl and tpsl['data']:
+            tpsl_orders = tpsl['data'].get('orders', [])
+            if tpsl_orders:
+                for t in tpsl_orders:
+                    info_text += f"【TP/SL】{t['direction']} {t['volume']}张 触发价格: {t['trigger_price']}\n"
+            else:
+                info_text += "无TP/SL"
         else:
             info_text += "无TP/SL"
 
@@ -89,18 +112,18 @@ async def gather_market_data():
 
 def construct_prompt(info_text):
     schema = {
-                "summary": "对当前操作的评价或解释，一般不超过50字",
-                "do": [
-                    {
-                        "action": "GO_LONG(开多) | GO_SHORT(开空) | CLOSE_LONG(平多) | CLOSE_SHORT(平空) | CANCEL(撤销挂单)",
-                        "price": "交易价格 (纯数字，请输入一个具体数字，而不是范围，如果需要市价交易请填入0)",
-                        "amount_level": "交易数量级别，输入0-3的整数，0表示极轻仓，1表示轻仓，2表示中仓，3表示重仓，一般来说，开仓时，1表示总额的10%，2表示总额的20%，3表示总额的30%，填入0时会以最小可交易价格开仓（即0.01），平仓时，填入1将平仓30%，2将会平仓50%，3将会平仓100%，填入0没有任何作用。当action为CANCEL时该值没有任何作用",
-                        "order_id": "挂单ID (填入所需要撤单的id，当action为CANCEL时必填，否则应该为空)",
-                        "take_profit": "止盈价格 (纯数字，请输入一个具体数字，而不是范围，当开仓时必填，其他情况不应该填)",
-                        "stop_loss": "止损价格 (纯数字，请输入一个具体数字，而不是范围，当开仓时必填，其他情况不应该填)"
-                    }
-                ]
+        "summary": "对当前操作的评价或解释，一般不超过50字",
+        "do": [
+            {
+                "action": "GO_LONG(开多) | GO_SHORT(开空) | CLOSE_LONG(平多) | CLOSE_SHORT(平空) | CANCEL(撤销挂单)",
+                "price": "交易价格 (纯数字，请输入一个具体数字，而不是范围，如果需要市价交易请填入0)",
+                "amount_level": "交易数量级别，输入0-3的整数，0表示极轻仓，1表示轻仓，2表示中仓，3表示重仓，一般来说，开仓时，1表示总额的10%，2表示总额的20%，3表示总额的30%，填入0时会以最小可交易价格开仓（即0.01），平仓时，填入1将平仓30%，2将会平仓50%，3将会平仓100%，填入0没有任何作用。当action为CANCEL时该值没有任何作用",
+                "order_id": "挂单ID (填入所需要撤单的id，当action为CANCEL时必填，否则应该为空)",
+                "take_profit": "止盈价格 (纯数字，请输入一个具体数字，而不是范围，当开仓时必填，其他情况不应该填)",
+                "stop_loss": "止损价格 (纯数字，请输入一个具体数字，而不是范围，当开仓时必填，其他情况不应该填)"
             }
+        ]
+    }
 
     prompt = f"""
 你只会回复JSON格式的字符串，不会回复其他任何内容。
@@ -109,7 +132,7 @@ def construct_prompt(info_text):
 禁止使用markdown标记，如果使用，我会将其标记为无效。
 禁止输出空内容，如果不需要操作，参考后面的无操作输出。
 现在时间为：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-请利用 Google Search 搜索最新的以太坊相关新闻、宏观经济数据。
+请利用 Google Search 搜索最新的加密货币相关新闻、宏观经济数据。
 结合我提供的 4 张图表（15m, 1h, 4h, 1d）进行技术分析，并给出具体操作。
 你应该偏向稳健型交易，若非有十足的把握，止盈止损不应该设置到距离现价的2%以上。
 同时多注意压力位和阻力位，分析过后将挂单尽量设置在未来一到四小时之内能够被触发的价格。
@@ -133,42 +156,46 @@ JSON 结构必须严格如下：
     return prompt
 
 
-async def execute_trade_action(action, positions):
+async def execute_trade_action(action, positions, symbol, leverage):
     """执行单个交易指令"""
     print('action: ', action)
-    print('positions: ', positions)
     act_type = action.get('action')
     price = float(action.get('price', 0))
     level = int(action.get('amount_level', 0))
     order_id = action.get('order_id')
-    take_profit = action.get('take_profit', 0)
-    if not take_profit:
-        take_profit = 0
-    else:
-        take_profit = float(take_profit)
-    stop_loss = action.get('stop_loss', 0)
-    if not stop_loss:
-        stop_loss = 0
-    else:
-        stop_loss = float(stop_loss)
+    take_profit = float(action.get('take_profit', 0) or 0)
+    stop_loss = float(action.get('stop_loss', 0) or 0)
 
-    vol_map = {0: 1, 1: 5, 2: 10, 3: 20}
+    # --- 动态获取开仓张数映射 ---
+    def get_vol(lvl, default):
+        val = db.get_config(f"vol_level_{lvl}")
+        return int(val) if val and val.isdigit() else default
+
+    vol_map = {
+        0: get_vol(0, 1),
+        1: get_vol(1, 5),
+        2: get_vol(2, 10),
+        3: get_vol(3, 20)
+    }
+
+    # 获取对应等级的张数 (仅用于开仓)
     volume = vol_map.get(level, 1)
 
-    log_msg = f"执行: {act_type} | 价格:{price} | 级别:{level}"
+    log_msg = f"执行: {act_type} | 标的:{symbol} | 价格:{price} | 级别:{level} (Vol:{volume})"
     db.add_log("EXEC", log_msg)
 
     try:
         if act_type == "GO_LONG":
-            return huobi.place_cross_order(SYMBOL, "buy", "open", volume, price, take_profit, stop_loss)
+            return huobi.place_cross_order(symbol, "buy", "open", volume, price, take_profit, stop_loss, leverage)
 
         elif act_type == "GO_SHORT":
-            return huobi.place_cross_order(SYMBOL, "sell", "open", volume, price, take_profit, stop_loss)
+            return huobi.place_cross_order(symbol, "sell", "open", volume, price, take_profit, stop_loss, leverage)
 
         elif act_type == "CLOSE_LONG":
             volume = 0
             for pos in positions:
                 if pos['direction'] == "buy":
+                    # 平仓逻辑保持按持仓比例
                     if level == 0:
                         volume = 0
                     elif level == 1:
@@ -177,12 +204,15 @@ async def execute_trade_action(action, positions):
                         volume = math.floor(int(pos['volume']) * 0.5)
                     elif level == 3:
                         volume = pos['volume']
-                    return huobi.place_cross_order(SYMBOL, "sell", "close", volume, price, take_profit, stop_loss)
+
+                    if volume > 0:
+                        return huobi.place_cross_order(symbol, "sell", "close", volume, price, 0, 0, leverage)
 
         elif act_type == "CLOSE_SHORT":
             volume = 0
             for pos in positions:
                 if pos['direction'] == "sell":
+                    # 平仓逻辑保持按持仓比例
                     if level == 0:
                         volume = 0
                     elif level == 1:
@@ -191,11 +221,13 @@ async def execute_trade_action(action, positions):
                         volume = math.floor(int(pos['volume']) * 0.5)
                     elif level == 3:
                         volume = pos['volume']
-                    return huobi.place_cross_order(SYMBOL, "buy", "close", volume, price, take_profit, stop_loss)
+
+                    if volume > 0:
+                        return huobi.place_cross_order(symbol, "buy", "close", volume, price, 0, 0, leverage)
 
         elif act_type == "CANCEL":
             if order_id:
-                return huobi.cancel_cross_order(SYMBOL, order_id)
+                return huobi.cancel_cross_order(symbol, order_id)
             else:
                 db.add_log("EXEC_ERR", "撤单缺少 Order ID")
 
@@ -211,11 +243,12 @@ async def run_automated_trading():
         db.add_log("SYSTEM", "API Key 未配置，跳过本次执行")
         return
 
-    db.add_log("SYSTEM", "开始执行自动分析流程...")
+    symbol, leverage = get_current_settings()
+    db.add_log("SYSTEM", f"开始执行自动分析流程 ({symbol}, x{leverage})...")
 
     try:
         # 1. 准备数据
-        context, images = await gather_market_data()
+        context, images = await gather_market_data(symbol)
         prompt = construct_prompt(context['text'])
 
         # 2. 调用 AI
@@ -232,12 +265,9 @@ async def run_automated_trading():
             db.add_log("ACTION", "AI 建议观望 (无操作)")
         else:
             for act in actions:
-                await execute_trade_action(act, context.get('positions', []))
+                await execute_trade_action(act, context.get('positions', []), symbol, leverage)
 
         db.add_log("SUCCESS", "流程执行完毕")
-
-        now = datetime.now()
-        db.set_config("last_run_hour", str(now.hour))
 
     except Exception as e:
         db.add_log("ERROR", f"自动流程异常: {str(e)}")
@@ -247,44 +277,46 @@ async def run_automated_trading():
 # --- 调度器 ---
 
 async def scheduler_loop():
-    """后台循环：每10秒检查一次"""
+    """后台循环：基于时间戳的分钟级调度"""
     print(">>> 自动交易调度器已启动")
     while True:
         try:
-            now = datetime.now()
-            current_hour = now.hour
+            # 读取配置
+            is_active_str = db.get_config("is_active")
+            is_active = (is_active_str == "true")
 
-            # 读取上次运行的小时
-            last_run = db.get_config("last_run_hour")
-            if last_run:
-                last_run = int(last_run)
-            else:
-                last_run = -1
+            interval_str = db.get_config("trade_interval")
+            try:
+                interval = int(interval_str)
+                if interval <= 0: interval = 60
+            except:
+                interval = 60  # 默认 60 分钟
 
-            # 判断是否是新的一小时
-            if current_hour != last_run:
-                db.add_log("SCHEDULER", f"检测到新小时 ({current_hour}:00)，触发任务")
+            now_ts = int(time.time())
+            current_slot = (now_ts // 60) // interval
 
-                # 执行任务
-                await run_automated_trading()
+            last_slot_str = db.get_config("last_run_slot")
+            last_slot = int(last_slot_str) if last_slot_str else -1
 
-                # 更新状态
-                # db.set_config("last_run_hour", str(current_hour))
+            if current_slot != last_slot:
+                if is_active:
+                    db.add_log("SCHEDULER", f"触发定时任务 (Interval: {interval}m)")
+                    asyncio.create_task(run_automated_trading())
+
+                db.set_config("last_run_slot", str(current_slot))
 
         except Exception as e:
             print(f"Scheduler Error: {e}")
 
-        # 等待 10 秒
         await asyncio.sleep(10)
 
 
 @app.on_event("startup")
 async def startup_event():
-    # 使用 asyncio.create_task 在后台启动循环，不阻塞主线程
     asyncio.create_task(scheduler_loop())
 
 
-# --- Web 路由 (保持不变) ---
+# --- Web 路由 ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -296,10 +328,55 @@ async def config_page(request: Request):
     return templates.TemplateResponse("config.html", {"request": request})
 
 
+# 统一的配置映射表
+CONFIG_MAP = {
+    "getAIKey": "gemini_key",
+    "getAccessKey": "access_key",
+    "getSecretKey": "secret_key",
+    "getSystemStatus": "is_active",
+    "getInterval": "trade_interval",
+    "getSymbol": "trade_symbol",
+    "getLeverage": "trade_leverage",
+    # 张数映射
+    "getVol0": "vol_level_0",
+    "getVol1": "vol_level_1",
+    "getVol2": "vol_level_2",
+    "getVol3": "vol_level_3",
+}
+
+REVERSE_CONFIG_MAP = {
+    "geminiKey": "gemini_key",
+    "accessKey": "access_key",
+    "secretKey": "secret_key",
+    "systemStatus": "is_active",
+    "tradeInterval": "trade_interval",
+    "tradeSymbol": "trade_symbol",
+    "tradeLeverage": "trade_leverage",
+    # 张数映射
+    "volLevel0": "vol_level_0",
+    "volLevel1": "vol_level_1",
+    "volLevel2": "vol_level_2",
+    "volLevel3": "vol_level_3",
+}
+
+
 @app.get("/api/get_key/{key_name}")
 async def get_key(key_name: str):
-    db_map = {"getAIKey": "gemini_key", "getAccessKey": "access_key", "getSecretKey": "secret_key"}
-    val = db.get_config(db_map.get(key_name, ""))
+    db_key = CONFIG_MAP.get(key_name, "")
+    val = db.get_config(db_key)
+
+    # 设置默认值
+    if key_name == "getSystemStatus" and val == "": val = "false"
+    if key_name == "getInterval" and val == "": val = "60"
+    if key_name == "getSymbol" and val == "": val = "ETH-USDT"
+    if key_name == "getLeverage" and val == "": val = "5"
+
+    # 张数默认值
+    if key_name == "getVol0" and val == "": val = "1"
+    if key_name == "getVol1" and val == "": val = "5"
+    if key_name == "getVol2" and val == "": val = "10"
+    if key_name == "getVol3" and val == "": val = "20"
+
     return {"value": val}
 
 
@@ -307,36 +384,41 @@ async def get_key(key_name: str):
 async def set_key(data: dict):
     key_name = data.get("key")
     value = data.get("value")
-    db_map = {"geminiKey": "gemini_key", "accessKey": "access_key", "secretKey": "secret_key"}
-    if key_name in db_map:
-        db.set_config(db_map[key_name], value)
+
+    # 校验
+    if key_name == "tradeInterval":
+        try:
+            if int(value) <= 0: return {"status": "error", "msg": "Invalid interval"}
+        except:
+            return {"status": "error", "msg": "Invalid interval"}
+
+    if key_name in REVERSE_CONFIG_MAP:
+        db.set_config(REVERSE_CONFIG_MAP[key_name], str(value))
         return {"status": "ok"}
     return {"status": "error"}
 
 
 @app.get("/logs_view", response_class=HTMLResponse)
 async def logs_page(request: Request):
-    logs = db.get_recent_logs(200)  # 增加查看行数
+    logs = db.get_recent_logs(200)
     log_text = "\n".join([f"[{l[0]}] [{l[1]}] {l[2]}" for l in logs])
     return templates.TemplateResponse("logs.html", {"request": request, "log_text": log_text})
 
 
 @app.get("/show", response_class=HTMLResponse)
 async def show_prompt_page(request: Request):
-    # 手动触发查看，不影响调度器
     try:
-        context, images = await gather_market_data()
+        symbol, leverage = get_current_settings()
+        context, images = await gather_market_data(symbol)
         prompt = construct_prompt(context['text'])
         return templates.TemplateResponse("show.html", {"request": request, "prompt": prompt, "images": images})
     except Exception as e:
         return HTMLResponse(f"Error: {str(e)}")
 
 
-# 手动触发一次分析的接口 (测试用)
 @app.post("/api/trigger_now")
 async def trigger_now():
-    background_tasks = BackgroundTasks()
-    await run_automated_trading()
+    asyncio.create_task(run_automated_trading())
     return {"status": "Triggered"}
 
 
