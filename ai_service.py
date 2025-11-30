@@ -73,7 +73,7 @@ class GeminiClient:
                     try:
                         obj = json.loads(block)
                         if "summary" in obj:
-                            content = obj
+                            content = block
                             break
                     except:
                         continue
