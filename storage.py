@@ -13,6 +13,11 @@ class StorageManager:
 
         self.db_path = os.path.join(self.base_dir, "trade.db")
         self._init_db()
+        self.log_callback = None  # 用于WebSocket广播的回调
+
+    def set_log_callback(self, callback):
+        """设置日志回调函数"""
+        self.log_callback = callback
 
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
@@ -67,7 +72,16 @@ class StorageManager:
         c.execute("INSERT INTO logs (timestamp, level, message) VALUES (?, ?, ?)", (timestamp, level, message))
         conn.commit()
         conn.close()
-        print(f"[{timestamp}] [{level}] {message}")
+
+        log_entry = f"[{timestamp}] [{level}] {message}"
+        print(log_entry)
+
+        # 触发回调广播到 WebSocket
+        if self.log_callback:
+            try:
+                self.log_callback(timestamp, level, message)
+            except:
+                pass
 
     def get_recent_logs(self, limit=100):
         conn = sqlite3.connect(self.db_path)

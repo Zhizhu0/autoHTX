@@ -3,16 +3,85 @@
 <head>
     <title>System Logs</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; display: flex; flex-direction: column; height: 90vh; }
-        textarea { flex: 1; background: #1e1e1e; color: #00ff00; font-family: monospace; padding: 10px; resize: none; }
+        body { font-family: sans-serif; padding: 20px; display: flex; flex-direction: column; height: 90vh; background: #222; color: #ddd; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        a { color: #4dabf7; text-decoration: none; font-size: 16px; }
+        .btn-run { background: #d32f2f; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .btn-run:disabled { background: #555; cursor: not-allowed; opacity: 0.7; }
+        .status-dot { height: 10px; width: 10px; background-color: #bbb; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .status-active { background-color: #00e676; }
+
+        textarea { flex: 1; background: #1e1e1e; color: #00ff00; font-family: monospace; padding: 10px; resize: none; border: 1px solid #444; border-radius: 4px; font-size: 13px; line-height: 1.4; }
     </style>
 </head>
 <body>
-    <a href="/" style="margin-bottom:10px;">← Back</a>
-    <textarea id="logArea" readonly>{{ log_text }}</textarea>
+    <div class="header">
+        <a href="/">← Back</a>
+        <div>
+            <span id="statusIndicator" class="status-dot"></span>
+            <span id="statusText" style="margin-right: 15px; font-size: 12px;">Idle</span>
+            <button id="runBtn" class="btn-run" onclick="triggerRun()">Run AI Analysis Now</button>
+        </div>
+    </div>
+
+    <textarea id="logArea" readonly>{{ initial_logs }}</textarea>
+
     <script>
         const area = document.getElementById('logArea');
+        const runBtn = document.getElementById('runBtn');
+        const statusText = document.getElementById('statusText');
+        const statusIndicator = document.getElementById('statusIndicator');
+
+        // Auto scroll to bottom
         area.scrollTop = area.scrollHeight;
+
+        function updateState(isAnalyzing) {
+            if (isAnalyzing) {
+                runBtn.disabled = true;
+                runBtn.innerText = "Running...";
+                statusText.innerText = "Analyzing...";
+                statusIndicator.classList.add("status-active");
+            } else {
+                runBtn.disabled = false;
+                runBtn.innerText = "Run AI Analysis Now";
+                statusText.innerText = "Idle";
+                statusIndicator.classList.remove("status-active");
+            }
+        }
+
+        // WebSocket
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs`;
+        const ws = new WebSocket(wsUrl);
+
+        ws.onmessage = function(event) {
+            const msg = JSON.parse(event.data);
+
+            if (msg.type === 'log') {
+                area.value += msg.data + "\n";
+                area.scrollTop = area.scrollHeight;
+            } else if (msg.type === 'status') {
+                updateState(msg.is_analyzing);
+            }
+        };
+
+        ws.onclose = function() {
+            statusText.innerText = "Disconnected";
+            runBtn.disabled = true;
+        };
+
+        function triggerRun() {
+            if (confirm("Confirm immediate execution? This ignores holding checks.")) {
+                runBtn.disabled = true;
+                fetch('/api/trigger_now', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status === 'error') {
+                            alert(data.msg);
+                        }
+                    });
+            }
+        }
     </script>
 </body>
 </html>

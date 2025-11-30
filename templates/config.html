@@ -19,10 +19,7 @@
         input:checked + .slider:before { -webkit-transform: translateX(26px); -ms-transform: translateX(26px); transform: translateX(26px); }
         .row { display: flex; align-items: center; justify-content: space-between; }
         .desc { font-size: 12px; color: #666; margin-top: 5px; }
-
-        /* Volume Inputs Grid */
         .vol-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-        .vol-item label { font-size: 12px; margin-bottom: 4px; color: #555; }
     </style>
 </head>
 <body>
@@ -38,80 +35,99 @@
                 <span class="slider"></span>
             </label>
         </div>
-        <div class="desc">If disabled, the bot will not perform any actions.</div>
+        <div class="desc">Global master switch.</div>
     </div>
 
     <!-- Skip AI Check -->
     <div class="group">
         <div class="row">
-            <label style="margin:0">Skip AI Analysis when Holding</label>
+            <label style="margin:0">Skip when Holding</label>
             <label class="switch">
                 <input type="checkbox" id="skipWhenHolding" onchange="saveCheck('skipWhenHolding', this.checked)">
                 <span class="slider"></span>
             </label>
         </div>
-        <div class="desc">If enabled, the bot will skip AI analysis loop if there are open positions.</div>
+        <div class="desc">Skip AI analysis if positions are open.</div>
+    </div>
+
+    <!-- Ensure Valid Request (New) -->
+    <div class="group">
+        <div class="row">
+            <label style="margin:0">Retry on Error</label>
+            <label class="switch">
+                <input type="checkbox" id="ensureValidReq" onchange="saveCheck('ensureValidReq', this.checked)">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div class="desc">If AI fails or returns invalid format, retry immediately (don't update schedule).</div>
+    </div>
+
+    <!-- Empty as None (New) -->
+    <div class="group">
+        <div class="row">
+            <label style="margin:0">Treat Empty as No-Op</label>
+            <label class="switch">
+                <input type="checkbox" id="emptyAsNone" onchange="saveCheck('emptyAsNone', this.checked)">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div class="desc">If AI returns empty string, treat as "No Action" instead of error.</div>
     </div>
 
     <div class="group">
         <label>Trading Interval (Minutes)</label>
         <input type="number" id="tradeInterval" min="1" oninput="saveVal('tradeInterval', this.value)">
-        <div class="desc">Triggers when (timestamp / 60) % interval == 0. Default: 60</div>
     </div>
 
-    <!-- Strategy Settings -->
     <div class="group">
         <label>Trading Symbol</label>
-        <input type="text" id="tradeSymbol" placeholder="e.g. ETH-USDT" oninput="saveVal('tradeSymbol', this.value)">
+        <input type="text" id="tradeSymbol" oninput="saveVal('tradeSymbol', this.value)">
     </div>
 
     <div class="group">
         <label>Leverage</label>
-        <input type="number" id="tradeLeverage" min="1" max="100" placeholder="e.g. 5" oninput="saveVal('tradeLeverage', this.value)">
+        <input type="number" id="tradeLeverage" oninput="saveVal('tradeLeverage', this.value)">
     </div>
 
     <!-- Volume Settings -->
     <div class="group">
-        <label>Open Volume (Contracts) per Level</label>
+        <label>Open Volume (Contracts)</label>
         <div class="vol-grid">
             <div class="vol-item">
-                <label>Level 0</label>
-                <input type="number" id="volLevel0" min="1" oninput="saveVal('volLevel0', this.value)">
+                <label>Lvl 0</label>
+                <input type="number" id="volLevel0" oninput="saveVal('volLevel0', this.value)">
             </div>
             <div class="vol-item">
-                <label>Level 1</label>
-                <input type="number" id="volLevel1" min="1" oninput="saveVal('volLevel1', this.value)">
+                <label>Lvl 1</label>
+                <input type="number" id="volLevel1" oninput="saveVal('volLevel1', this.value)">
             </div>
             <div class="vol-item">
-                <label>Level 2</label>
-                <input type="number" id="volLevel2" min="1" oninput="saveVal('volLevel2', this.value)">
+                <label>Lvl 2</label>
+                <input type="number" id="volLevel2" oninput="saveVal('volLevel2', this.value)">
             </div>
             <div class="vol-item">
-                <label>Level 3</label>
-                <input type="number" id="volLevel3" min="1" oninput="saveVal('volLevel3', this.value)">
+                <label>Lvl 3</label>
+                <input type="number" id="volLevel3" oninput="saveVal('volLevel3', this.value)">
             </div>
         </div>
-        <div class="desc">Defines how many contracts to buy/sell for each AI confidence level (0-3).</div>
     </div>
 
     <!-- API Keys -->
     <h3>API Keys</h3>
     <div class="group">
-        <label>Huobi API Base URL</label>
-        <input type="text" id="huobiUrl" placeholder="https://api.hbdm.com" oninput="saveVal('huobiUrl', this.value)">
-        <div class="desc">Default: https://api.hbdm.com</div>
+        <label>Huobi Base URL</label>
+        <input type="text" id="huobiUrl" oninput="saveVal('huobiUrl', this.value)">
     </div>
-
     <div class="group">
-        <label>Gemini AI Key</label>
+        <label>Gemini Key</label>
         <input type="password" id="geminiKey" oninput="saveVal('geminiKey', this.value)">
     </div>
     <div class="group">
-        <label>Huobi Access Key</label>
+        <label>Access Key</label>
         <input type="password" id="accessKey" oninput="saveVal('accessKey', this.value)">
     </div>
     <div class="group">
-        <label>Huobi Secret Key</label>
+        <label>Secret Key</label>
         <input type="password" id="secretKey" oninput="saveVal('secretKey', this.value)">
     </div>
 
@@ -122,6 +138,8 @@
             'secretKey': 'getSecretKey',
             'systemStatus': 'getSystemStatus',
             'skipWhenHolding': 'getSkipHolding',
+            'ensureValidReq': 'getEnsureValid',
+            'emptyAsNone': 'getEmptyAsNone',
             'tradeInterval': 'getInterval',
             'tradeSymbol': 'getSymbol',
             'tradeLeverage': 'getLeverage',
@@ -132,7 +150,6 @@
             'volLevel3': 'getVol3'
         };
 
-        // Load init values
         for (let id in map) {
             fetch(`/api/get_key/${map[id]}`)
                 .then(r => r.json())
@@ -149,17 +166,12 @@
         }
 
         function saveVal(key, value) {
-            // Validation for Interval
-            if (key === 'tradeInterval') {
-                if (value === '' || isNaN(value) || parseInt(value) <= 0) return;
-            }
+            if (key === 'tradeInterval' && (value === '' || parseInt(value) <= 0)) return;
             send(key, value);
         }
-
         function saveCheck(key, checked) {
             send(key, checked ? "true" : "false");
         }
-
         function send(key, value) {
             fetch('/api/set_key', {
                 method: 'POST',
