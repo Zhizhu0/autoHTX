@@ -226,6 +226,7 @@ async def gather_market_data(user_id, symbol):
         try:
             acc_info = huobi.get_account_info(symbol)
             market_detail = huobi.get_market_detail(symbol)
+            tpsl = huobi.get_tpsl_openorders(symbol)
 
             if 'tick' in market_detail:
                 tick = market_detail['tick']
@@ -241,9 +242,21 @@ async def gather_market_data(user_id, symbol):
             info_text += "\n挂单: "
             orders = acc_info.get('orders', [])
             if orders:
-                for o in orders: info_text += f"[{o['direction']} {o['volume']}张 {o['price']}] "
+                for o in orders:
+                    info_text += f"[{o['direction']} {o['offset']} {o['volume']}张 价格:{o['price']} id:{o['order_id_str']}] "
             else:
                 info_text += "无"
+
+            info_text += "\n当前TP/SL: "
+            if tpsl and 'data' in tpsl and tpsl['data']:
+                tpsl_orders = tpsl['data'].get('orders', [])
+                if tpsl_orders:
+                    for t in tpsl_orders:
+                        info_text += f"【TP/SL】{t['direction']} {t['volume']}张 触发价格: {t['trigger_price']}\n"
+                else:
+                    info_text += "无TP/SL"
+            else:
+                info_text += "无TP/SL"
 
             data_context['text'] = info_text
             data_context['positions'] = positions
