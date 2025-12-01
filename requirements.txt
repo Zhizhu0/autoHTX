@@ -8,3 +8,5 @@ mplfinance
 jinja2
 python-multipart
 feedparser
+cryptography
+pyjwt
