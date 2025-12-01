@@ -11,6 +11,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 import uvicorn
+import feedparser
+
 
 from storage import db
 from huobi_api import HuobiClient
@@ -101,6 +103,20 @@ def get_current_settings():
     leverage = db.get_config("trade_leverage") or 5
     return symbol, int(leverage)
 
+def get_latest_news():
+    """获取简单的加密货币新闻快讯"""
+    try:
+        # 使用 Cointelegraph 的 RSS 源 (也可以换成其他中文源)
+        feed_url = "https://cointelegraph.com/rss"
+        feed = feedparser.parse(feed_url)
+        news_text = "【最新市场新闻 (仅供参考)】\n"
+        # 取前 3 条新闻标题
+        for entry in feed.entries[:5]:
+            news_text += f"- {entry.title}\n"
+        return news_text
+    except Exception as e:
+        print(f"新闻获取失败: {e}")
+        return "【新闻获取失败，请仅参考技术面】\n"
 
 # --- 核心业务逻辑 (使用 to_thread 避免阻塞) ---
 
@@ -118,13 +134,15 @@ async def gather_market_data(symbol):
             img = chart_gen.generate_chart_base64(df, f"{symbol} {p_name}")
             chart_images.append(img)
 
+        news_summary = get_latest_news()
+        info_text = news_summary + "\n" + f"【当前 {symbol} 市场与账户信息】\n"
+
         # 2. 账户信息
         try:
             acc_info = huobi.get_account_info(symbol)
             market_detail = huobi.get_market_detail(symbol)
             tpsl = huobi.get_tpsl_openorders(symbol)
 
-            info_text = f"【当前 {symbol} 市场与账户信息】\n"
             if 'tick' in market_detail:
                 tick = market_detail['tick']
                 info_text += f"24H最高: {tick.get('high')}, 24H最低: {tick.get('low')}, 现价: {tick.get('close')}\n"
@@ -195,7 +213,7 @@ def construct_system_prompt():
 不得进行自我反思、不输出思考过程。
 
 【核心规则】
-1. 利用 Google Search 获取最新新闻和宏观数据，如果不可用，显式提醒用户。
+1. 参考提供的【最新市场新闻】以及 K 线图进行分析。
 2. 结合提供的 4 张 K 线图进行技术分析。
 3. 风格偏向稳健，止盈止损一般不超过现价 2%。
 4. 优先关注压力位和阻力位。

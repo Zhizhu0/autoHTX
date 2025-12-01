@@ -7,3 +7,4 @@ matplotlib
 mplfinance
 jinja2
 python-multipart
+feedparser
