@@ -9,7 +9,7 @@ import argparse
 import subprocess
 import requests  # 【新增】用于CLI向服务端发送重启指令
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
@@ -74,7 +74,7 @@ if __name__ == "__main__":
         # 这个 Token 专门用于通过 API 触发重启
         temp_token = jwt.encode({
             "sub": "system_cli_admin",  # 特殊标识
-            "exp": datetime.utcnow() + timedelta(seconds=60)
+            "exp": datetime.now(timezone.utc) + timedelta(seconds=60)
         }, SECRET_KEY, algorithm=ALGORITHM)
 
         try:
@@ -611,7 +611,7 @@ async def login_submit(request: Request):
     # 登录成功，生成Token
     token = jwt.encode({
         "sub": str(user_id),
-        "exp": datetime.utcnow() + timedelta(days=7)
+        "exp": datetime.now(timezone.utc) + timedelta(days=7)
     }, SECRET_KEY, algorithm=ALGORITHM)
 
     resp = RedirectResponse("/", status_code=303)
