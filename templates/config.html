@@ -64,6 +64,46 @@
             font-size: 16px; /* 防止iOS缩放 */
         }
 
+        .range-container {
+            width: 100%;
+            padding: 10px 0;
+        }
+        input[type=range] {
+            width: 100%;
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: var(--slider-on);
+            cursor: pointer;
+            margin-top: -8px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: var(--border);
+            border-radius: 2px;
+        }
+        .range-value {
+            font-weight: bold;
+            color: var(--link-color);
+            margin-left: 10px;
+        }
+        .level-desc {
+            font-size: 13px;
+            color: var(--text-sub);
+            background: rgba(0,0,0,0.05);
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 5px;
+            line-height: 1.5;
+        }
+
         .back {
             margin-bottom: 20px;
             display: inline-block;
@@ -172,6 +212,14 @@
     </div>
 
     <div class="group">
+        <label>策略激进级别 <span id="levelValue" class="range-value">2</span></label>
+        <div class="range-container">
+            <input type="range" id="aggressionLevel" min="0" max="4" step="1" oninput="updateLevelDesc(this.value)" onchange="saveVal('aggressionLevel', this.value)">
+        </div>
+        <div id="levelDesc" class="level-desc">加载中...</div>
+    </div>
+
+    <div class="group">
         <label>开仓数量 (张)</label>
         <div class="vol-grid">
             <div class="vol-item">
@@ -212,15 +260,29 @@
     </div>
 
     <!-- Script 保持不变 -->
-    <script>
+     <script>
         const map = {
             'geminiKey': 'getAIKey', 'accessKey': 'getAccessKey', 'secretKey': 'getSecretKey',
             'systemStatus': 'getSystemStatus', 'skipWhenHolding': 'getSkipHolding',
             'ensureValidReq': 'getEnsureValid', 'emptyAsNone': 'getEmptyAsNone',
             'tradeInterval': 'getInterval', 'tradeSymbol': 'getSymbol', 'tradeLeverage': 'getLeverage',
             'huobiUrl': 'getHuobiUrl',
+            'aggressionLevel': 'getAggressionLevel', // 新增映射
             'volLevel0': 'getVol0', 'volLevel1': 'getVol1', 'volLevel2': 'getVol2', 'volLevel3': 'getVol3'
         };
+
+        const levelDescriptions = [
+            "【保守/长线】关注日线大趋势，极宽止损，分批挂单，极少操作。",
+            "【稳健/趋势】关注1-4小时图，顺势而为，只做限价单回调，宁缺毋滥。",
+            "【平衡/震荡】关注区间震荡，高抛低吸，可持有双向挂单(网格思维)。",
+            "【激进/日内】关注15m-1h图，偶尔市价开单，止损较窄(<1%)，追求波段。",
+            "【极激进/剥头皮】关注短期动能，频繁市价开单，极窄止损，快进快出。"
+        ];
+
+        function updateLevelDesc(val) {
+            document.getElementById('levelValue').innerText = val;
+            document.getElementById('levelDesc').innerText = levelDescriptions[val];
+        }
 
         for (let id in map) {
             fetch(`/api/get_key/${map[id]}`)
@@ -230,6 +292,9 @@
                     if (el) {
                         if (el.type === 'checkbox') {
                             el.checked = (d.value === 'true');
+                        } else if (id === 'aggressionLevel') {
+                            el.value = d.value || 2; // 默认为2
+                            updateLevelDesc(el.value);
                         } else {
                             el.value = d.value;
                         }

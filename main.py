@@ -195,24 +195,77 @@ def on_db_log(user_id, t, l, m):
 
 db.set_log_callback(on_db_log)
 
+def get_aggression_prompt(level_str):
+    try:
+        level = int(level_str)
+    except:
+        level = 2  # 默认等级
+
+    if level == 0:
+        return (
+            "【极端保守策略】\n"
+            "你的策略极其保守，优先关注日线级别图表。\n"
+            "止损位置应设置在趋势完全反转的情况下（通常较宽），并且倾向于分批挂单。\n"
+            "止盈设置在可预见的大级别阻力/支撑处。\n"
+            "首要任务是本金安全，绝大部分时间选择观望，只有在确定性极高时才操作。\n"
+            "几乎不去修改已有的挂单。"
+        )
+    elif level == 1:
+        return (
+            "【稳健趋势策略】\n"
+            "你的策略较为稳健，主要关注1小时到4小时图表。\n"
+            "尽可能地顺应大方向趋势，绝对不开逆势的单子。\n"
+            "一般选择限价单（Pending Order）等待回调成交，不追单。\n"
+            "大部分时间选择观望。"
+        )
+    elif level == 2:
+        return (
+            "【平衡/震荡策略】\n"
+            "你的策略一般较为稳健，关注震荡区间。\n"
+            "经常会同时持有多空两个方向的挂单（高抛低吸/网格思维）。\n"
+            "根据当前是在区间上沿还是下沿来决定操作。\n"
+            "止盈止损设置适中。"
+        )
+    elif level == 3:
+        return (
+            "【激进日内策略】\n"
+            "你的策略较为激进，关注15分钟到1小时图表。\n"
+            "为了不错过行情，偶尔会选择市价开单（Market Order）。\n"
+            "止盈止损设置较近，止损一般不会超过开仓价的 1%。\n"
+            "追求波段利润。"
+        )
+    elif level == 4:
+        return (
+            "【极激进/剥头皮策略】\n"
+            "你的策略非常激进，关注短期动能和5分钟/15分钟图表。\n"
+            "经常选择市价开单追逐波动。\n"
+            "止损非常严格且极窄，一旦走势不对立即离场。\n"
+            "交易频率较高。"
+        )
+    return ""
 
 # --- 鉴权依赖 ---
 
 async def get_current_user(request: Request):
     token = request.cookies.get(COOKIE_NAME)
 
-    # 【修改】支持 Header 验证 (用于 CLI 自动更新的权限验证)
+    # 优先检查 Header (用于 CLI 等)
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
 
     if not token:
         return None
+
+    # 【修复点在这里】：如果 Token 来自 Cookie 且包含 "Bearer " 前缀，需要去掉
+    if token.startswith("Bearer "):
+        token = token.replace("Bearer ", "")
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
 
-        # 【修改】识别 CLI 管理员标识
+        # 识别 CLI 管理员标识
         if user_id == "system_cli_admin":
             return "system_cli_admin"
 
@@ -364,9 +417,7 @@ async def execute_trade_action(user_id, action, positions, symbol, leverage):
 
 
 async def run_automated_trading(user_id, force=False):
-    # 【修改】CLI 管理员不执行交易
     if user_id == "system_cli_admin": return
-
     if GlobalState.is_analyzing(user_id): return
     GlobalState.set_analyzing(user_id, True)
     await ws_manager.broadcast_status(user_id, True)
@@ -381,6 +432,10 @@ async def run_automated_trading(user_id, force=False):
         symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
         leverage = db.get_config(user_id, "trade_leverage") or 5
 
+        # 获取激进级别
+        agg_level = db.get_config(user_id, "aggression_level") or "2"
+        strategy_prompt = get_aggression_prompt(agg_level)
+
         context, images = await gather_market_data(user_id, symbol)
 
         if not force:
@@ -393,40 +448,39 @@ async def run_automated_trading(user_id, force=False):
             "summary": "对当前操作的评价或解释，一般不超过50字",
             "do": [
                 {
-                    "action": "GO_LONG(开多) | GO_SHORT(开空) | CLOSE_LONG(平多) | CLOSE_SHORT(平空) | CANCEL(撤销挂单)",
-                    "price": "交易价格 (纯数字，请输入一个具体数字，而不是范围，如果需要市价交易请填入0)",
-                    "amount_level": "交易数量级别，输入0-3的整数，0表示极轻仓，1表示轻仓，2表示中仓，3表示重仓",
-                    "order_id": "挂单ID (填入所需要撤单的id，当action为CANCEL时必填，否则应该为空)",
-                    "take_profit": "止盈价格 (纯数字，当开仓时必填)",
-                    "stop_loss": "止损价格 (纯数字，当开仓时必填)"
+                    "action": "GO_LONG | GO_SHORT | CLOSE_LONG | CLOSE_SHORT | CANCEL",
+                    "price": "价格(纯数字，市价填0)",
+                    "amount_level": "0-3整数 (0极轻, 1轻, 2中, 3重)",
+                    "order_id": "撤单ID(可选)",
+                    "take_profit": "止盈价格",
+                    "stop_loss": "止损价格"
                 }
             ]
         }
+
+        # 2. 修改：SysPrompt 移除硬编码的稳健限制，注入策略Prompt
         sys_prompt = f"""
 你是一个专业的加密货币交易员 AI。
-你只会回复纯净的 JSON 格式字符串，不包含 Markdown 标记。
-不得进行自我反思、不输出思考过程。
+你只会回复纯净的 JSON 格式字符串。
 
-【核心规则】
-1. 参考提供的【最新市场新闻】以及 K 线图进行分析。
-2. 结合提供的 4 张 K 线图进行技术分析。
-3. 风格偏向稳健，止盈止损一般不超过现价 2%。
-4. 优先关注压力位和阻力位。
-5. 【重要】检查用户当前持仓和挂单，不要重复开仓。旧挂单如果不合适请先 CANCEL。
-6. 如果行情不明朗，保持观望，do 数组为空。
-7. 用户的挂单永远有设置止盈止损，不要因为用户信息中显示无TP/SL就认为无止盈止损。
+
+【通用规则】
+1. 参考最新市场新闻及 K 线图。
+2. 结合 4 张 K 线图进行技术分析。
+3. 优先关注压力位和阻力位。
+4. 【重要】检查用户当前持仓和挂单，避免重复开仓。旧挂单如果不合适请先 CANCEL。
+5. 用户的挂单永远有设置止盈止损，不要认为无TP/SL。
 
 【输出格式】
 JSON 结构必须严格如下：
 {json.dumps(schema, indent=4, ensure_ascii=False)}
 
-不需要操作时，返回 {{"summary": "观望理由", "do": []}}。
-禁止返回空内容。
+不需要操作时，返回 {{"summary": "理由", "do": []}}。
 """
-        user_prompt = f"当前时间:{datetime.now()}\n{context['text']}"
+        user_prompt = f"当前时间:{datetime.now()}\n{context['text']}\n【核心策略配置】\n{strategy_prompt}"
 
         ai = GeminiClient(user_id)
-        db.add_log(user_id, "AI", "请求分析...")
+        db.add_log(user_id, "AI", f"请求分析(Lv.{agg_level})...")
         result = await asyncio.to_thread(ai.get_analysis, sys_prompt, user_prompt, images)
 
         if 'summary' in result: db.add_log(user_id, "SUMMARY", result['summary'])
@@ -616,13 +670,26 @@ async def logs_page(request: Request, user_id=Depends(login_required)):
 
 @app.get("/show", response_class=HTMLResponse)
 async def show_prompt_page(request: Request, user_id=Depends(login_required)):
+    return templates.TemplateResponse("show.html", {"request": request})
+
+
+@app.get("/api/get_show_data")
+async def get_show_data(user_id=Depends(login_required)):
     try:
         symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
+        agg_level = db.get_config(user_id, "aggression_level") or "2"
+        strategy_prompt = get_aggression_prompt(agg_level)
+
         context, images = await gather_market_data(user_id, symbol)
-        return templates.TemplateResponse("show.html",
-                                          {"request": request, "prompt": context['text'], "images": images})
+
+        # 构造完整预览 Prompt 给前端看
+        preview_prompt = (
+            f"当前时间:{datetime.now()}\n{context['text']}\n【核心策略配置】\n{strategy_prompt}"
+        )
+
+        return {"status": "ok", "prompt": preview_prompt, "images": images}
     except Exception as e:
-        return HTMLResponse(f"Error: {e}")
+        return {"status": "error", "msg": str(e)}
 
 
 @app.post("/api/trigger_now")
@@ -641,12 +708,14 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
         "getLeverage": "trade_leverage", "getHuobiUrl": "huobi_api_url", "getSkipHolding": "skip_when_holding",
         "getEnsureValid": "ensure_valid_req", "getEmptyAsNone": "empty_as_none",
         "getVol0": "vol_level_0", "getVol1": "vol_level_1", "getVol2": "vol_level_2", "getVol3": "vol_level_3",
+        "getAggressionLevel": "aggression_level"
     }
     db_key = CONFIG_MAP.get(key_name)
     if not db_key: return {"value": ""}
 
     val = db.get_config(user_id, db_key)
-    defaults = {"getSymbol": "ETH-USDT", "getLeverage": "5", "getInterval": "60"}
+    # 默认值处理
+    defaults = {"getSymbol": "ETH-USDT", "getLeverage": "5", "getInterval": "60", "getAggressionLevel": "2"}
     if val == "" and key_name in defaults: val = defaults[key_name]
     return {"value": val}
 
@@ -659,6 +728,7 @@ async def set_key(data: dict, user_id=Depends(login_required)):
         "tradeLeverage": "trade_leverage", "huobiUrl": "huobi_api_url", "skipWhenHolding": "skip_when_holding",
         "ensureValidReq": "ensure_valid_req", "emptyAsNone": "empty_as_none",
         "volLevel0": "vol_level_0", "volLevel1": "vol_level_1", "volLevel2": "vol_level_2", "volLevel3": "vol_level_3",
+        "aggressionLevel": "aggression_level"
     }
     key_name = data.get("key")
     if key_name in FRONTEND_TO_DB_MAP:

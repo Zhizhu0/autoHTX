@@ -34,6 +34,14 @@
             display: flex;
             flex-direction: row;
             gap: 20px;
+            visibility: hidden; /* 加载前隐藏 */
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        .container.loaded {
+            visibility: visible;
+            opacity: 1;
         }
 
         .text-area {
@@ -49,13 +57,14 @@
 
         textarea {
             width: 100%;
-            height: 500px;
+            height: 600px;
             font-family: monospace;
             box-sizing: border-box;
             background: var(--textarea-bg);
             color: var(--text-main);
             border: 1px solid var(--border);
             padding: 10px;
+            font-size: 13px;
         }
 
         img {
@@ -66,28 +75,88 @@
 
         a { color: #007bff; text-decoration: none; font-size: 16px; font-weight: bold; margin-bottom: 10px; display: inline-block; }
 
+        /* Loading 样式 */
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: var(--bg-body);
+            z-index: 100;
+        }
+        .spinner {
+            border: 4px solid rgba(0,0,0,0.1);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
         @media (max-width: 768px) {
             .container { flex-direction: column; }
             .text-area, .charts-area { width: 100%; }
             .charts-area { grid-template-columns: 1fr; }
-            textarea { height: 200px; }
+            textarea { height: 300px; }
         }
     </style>
 </head>
 <body>
     <a href="/">← Back</a>
-    <div class="container">
+
+    <div id="loading" class="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loadingText">正在获取实时数据与绘制图表...</div>
+    </div>
+
+    <div id="content" class="container">
         <div class="text-area">
-            <h3>Generated Prompt</h3>
-            <textarea readonly>{{ prompt }}</textarea>
+            <h3>Generated Prompt (Preview)</h3>
+            <textarea id="promptArea" readonly></textarea>
         </div>
-        <div class="charts-area">
-            {% for img in images %}
-            <div>
-                <img src="data:image/png;base64,{{ img }}" />
-            </div>
-            {% endfor %}
+        <div class="charts-area" id="chartsArea">
+            <!-- 图表将在这里生成 -->
         </div>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            fetch('/api/get_show_data')
+                .then(response => {
+                    if (!response.ok) throw new Error("Load Failed");
+                    return response.json();
+                })
+                .then(data => {
+                    if(data.status === 'error') {
+                        document.getElementById('loadingText').innerText = "错误: " + data.msg;
+                        return;
+                    }
+
+                    // 填充文本
+                    document.getElementById('promptArea').value = data.prompt;
+
+                    // 填充图片
+                    const chartsContainer = document.getElementById('chartsArea');
+                    data.images.forEach(base64 => {
+                        const div = document.createElement('div');
+                        const img = document.createElement('img');
+                        img.src = `data:image/png;base64,${base64}`;
+                        div.appendChild(img);
+                        chartsContainer.appendChild(div);
+                    });
+
+                    // 切换显示
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('content').classList.add('loaded');
+                })
+                .catch(err => {
+                    document.getElementById('loadingText').innerText = "加载失败，请检查服务器日志。";
+                });
+        });
+    </script>
 </body>
 </html>
