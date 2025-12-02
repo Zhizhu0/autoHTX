@@ -419,6 +419,10 @@ async def scheduler_loop():
             now_ts = int(time.time())
 
             for user_id in active_users:
+                # 【新增】关键修复：如果用户正在分析中，直接跳过，防止重复触发
+                if GlobalState.is_analyzing(user_id):
+                    continue
+
                 # 独立获取每个用户的配置
                 interval_str = db.get_config(user_id, "trade_interval")
                 interval = int(interval_str) if interval_str and interval_str.isdigit() else 60
@@ -430,11 +434,13 @@ async def scheduler_loop():
 
                 if current_slot != last_slot:
                     db.add_log(user_id, "SCHEDULER", f"触发定时任务 ({interval}m)")
+                    # 这里 create_task 启动后，GlobalState 会在 run_automated_trading 内部被设为 True
+                    # 但为了保险，建议任务启动稍作延时或依靠下一次循环检测
                     asyncio.create_task(run_and_update(user_id, current_slot, interval))
 
         except Exception as e:
             print(f"Scheduler Loop Error: {e}")
-        await asyncio.sleep(10)
+        await asyncio.sleep(5)
 
 
 async def run_and_update(user_id, slot, interval):
@@ -596,7 +602,10 @@ async def websocket_endpoint(websocket: WebSocket):
     # 发送状态
     await ws_manager.broadcast_status(user_id, GlobalState.is_analyzing(user_id))
     try:
-        while True: await websocket.receive_text()
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                continue
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket, user_id)
 

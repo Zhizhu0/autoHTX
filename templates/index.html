@@ -1,20 +1,97 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>火币自动交易控制台</title>
     <style>
-        body { font-family: "Microsoft YaHei", sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f0f2f5; position: relative; }
-        .btn { padding: 15px 30px; margin: 10px; font-size: 18px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; width: 220px; text-align: center; text-decoration: none; }
-        .btn:hover { background: #0056b3; }
-        .logout { position: absolute; top: 20px; right: 20px; color: #dc3545; text-decoration: none; font-weight: bold; border: 1px solid #dc3545; padding: 5px 15px; border-radius: 4px; }
-        .logout:hover { background: #dc3545; color: white; }
+        :root {
+            --bg-body: #f0f2f5;
+            --text-main: #333;
+            --btn-bg: #007bff;
+            --btn-hover: #0056b3;
+            --logout-color: #dc3545;
+            --logout-border: #dc3545;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-body: #121212;
+                --text-main: #e0e0e0;
+                --btn-bg: #0d6efd;
+                --btn-hover: #0b5ed7;
+                --logout-color: #ff6b6b;
+                --logout-border: #ff6b6b;
+            }
+        }
+
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: var(--bg-body);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        h1 { margin-bottom: 30px; text-align: center; font-size: 2rem; }
+
+        .btn-container {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        .btn {
+            padding: 15px;
+            margin: 10px 0;
+            font-size: 18px;
+            cursor: pointer;
+            background: var(--btn-bg);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            text-align: center;
+            text-decoration: none;
+            transition: background 0.3s;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .btn:hover { background: var(--btn-hover); }
+
+        .logout {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: var(--logout-color);
+            text-decoration: none;
+            font-weight: bold;
+            border: 1px solid var(--logout-border);
+            padding: 8px 15px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .logout:hover { background: var(--logout-color); color: var(--bg-body); }
+
+        @media (max-width: 600px) {
+            h1 { font-size: 1.5rem; margin-top: 40px; }
+            .logout { top: 15px; right: 15px; padding: 5px 10px; font-size: 12px; }
+        }
     </style>
 </head>
 <body>
     <a href="/logout" class="logout">退出登录</a>
     <h1>火币自动交易控制台</h1>
-    <a href="/show" class="btn">查看提示词与图表</a>
-    <a href="/config" class="btn">系统参数设置</a>
-    <a href="/logs_view" class="btn">查看系统日志</a>
+    <div class="btn-container">
+        <a href="/show" class="btn">查看提示词与图表</a>
+        <a href="/config" class="btn">系统参数设置</a>
+        <a href="/logs_view" class="btn">查看系统日志</a>
+    </div>
 </body>
 </html>

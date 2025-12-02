@@ -1,17 +1,82 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录 - 火币自动交易</title>
     <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; }
-        .box { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 300px; }
-        h2 { text-align: center; margin-top: 0; color: #333; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
-        button:hover { background: #0056b3; }
+        :root {
+            --bg-body: #f0f2f5;
+            --bg-box: #ffffff;
+            --text-main: #333;
+            --input-border: #ddd;
+            --input-bg: #fff;
+            --btn-bg: #007bff;
+            --link-color: #007bff;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-body: #121212;
+                --bg-box: #1e1e1e;
+                --text-main: #e0e0e0;
+                --input-border: #444;
+                --input-bg: #2c2c2c;
+                --btn-bg: #0d6efd;
+                --link-color: #4dabf7;
+            }
+        }
+
+        body {
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: var(--bg-body);
+            margin: 0;
+        }
+
+        .box {
+            background: var(--bg-box);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 90%;
+            max-width: 350px;
+        }
+
+        h2 { text-align: center; margin-top: 0; color: var(--text-main); }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid var(--input-border);
+            border-radius: 4px;
+            box-sizing: border-box;
+            background: var(--input-bg);
+            color: var(--text-main);
+            font-size: 16px;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: var(--btn-bg);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover { opacity: 0.9; }
+
         .error { color: #dc3545; font-size: 14px; text-align: center; margin-bottom: 10px; }
-        .link { text-align: center; margin-top: 15px; font-size: 14px; }
-        .link a { color: #007bff; text-decoration: none; }
+
+        .link { text-align: center; margin-top: 20px; font-size: 14px; }
+        .link a { color: var(--link-color); text-decoration: none; }
     </style>
 </head>
 <body>

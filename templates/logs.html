@@ -1,39 +1,104 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>系统日志</title>
     <style>
-        body { font-family: "Microsoft YaHei", sans-serif; padding: 20px; display: flex; flex-direction: column; height: 90vh; background: #222; color: #ddd; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        a { color: #4dabf7; text-decoration: none; font-size: 16px; }
-        .btn-run { background: #d32f2f; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        :root {
+            --bg-body: #222;
+            --text-main: #ddd;
+            --textarea-bg: #1e1e1e;
+            --textarea-text: #00ff00;
+            --textarea-border: #444;
+            --link-color: #4dabf7;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-body: #f5f5f5;
+                --text-main: #333;
+                --textarea-bg: #fff;
+                --textarea-text: #333;
+                --textarea-border: #ccc;
+                --link-color: #007bff;
+            }
+        }
+
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: var(--bg-body);
+            color: var(--text-main);
+            margin: 0;
+            box-sizing: border-box;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        a { color: var(--link-color); text-decoration: none; font-size: 16px; font-weight: bold; }
+
+        .controls { display: flex; align-items: center; }
+
+        .btn-run {
+            background: #d32f2f;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+        }
         .btn-run:disabled { background: #555; cursor: not-allowed; opacity: 0.7; }
+
         .status-dot { height: 10px; width: 10px; background-color: #bbb; border-radius: 50%; display: inline-block; margin-right: 5px; }
         .status-active { background-color: #00e676; }
         .status-error { background-color: #ff9800; }
 
-        textarea { flex: 1; background: #1e1e1e; color: #00ff00; font-family: monospace; padding: 10px; resize: none; border: 1px solid #444; border-radius: 4px; font-size: 13px; line-height: 1.4; }
+        textarea {
+            flex: 1;
+            background: var(--textarea-bg);
+            color: var(--textarea-text);
+            font-family: monospace;
+            padding: 10px;
+            resize: none;
+            border: 1px solid var(--textarea-border);
+            border-radius: 4px;
+            font-size: 13px;
+            line-height: 1.4;
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <a href="/">← 返回主页</a>
-        <div>
+        <a href="/">← 返回</a>
+        <div class="controls">
             <span id="statusIndicator" class="status-dot"></span>
             <span id="statusText" style="margin-right: 15px; font-size: 12px;">连接中...</span>
-            <button id="runBtn" class="btn-run" onclick="triggerRun()">立即运行 AI 分析</button>
+            <button id="runBtn" class="btn-run" onclick="triggerRun()">立即运行 AI</button>
         </div>
     </div>
 
     <textarea id="logArea" readonly>{{ initial_logs }}</textarea>
 
+    <!-- Script 保持不变 -->
     <script>
         const area = document.getElementById('logArea');
         const runBtn = document.getElementById('runBtn');
         const statusText = document.getElementById('statusText');
         const statusIndicator = document.getElementById('statusIndicator');
 
-        // 自动滚动到底部
         area.scrollTop = area.scrollHeight;
 
         function updateState(isAnalyzing) {
@@ -50,28 +115,28 @@
             }
         }
 
-        // WebSocket 连接与重连逻辑
         let ws;
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs`;
+        let pingInterval;
 
         function connectWs() {
             ws = new WebSocket(wsUrl);
 
             ws.onopen = function() {
                 console.log("WebSocket 已连接");
-                // 如果当前不是“正在分析”状态，连接成功后恢复按钮可用，显示空闲
-                // 注意：如果服务端在连接后立即发送了 status 消息，这行会被覆盖，属于正常现象
                 if (statusText.innerText !== "正在分析...") {
                     statusText.innerText = "空闲";
                     statusIndicator.className = "status-dot";
                     runBtn.disabled = false;
                 }
+                pingInterval = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+                }, 30000);
             };
 
             ws.onmessage = function(event) {
                 const msg = JSON.parse(event.data);
-
                 if (msg.type === 'log') {
                     area.value += msg.data + "\n";
                     area.scrollTop = area.scrollHeight;
@@ -81,22 +146,17 @@
             };
 
             ws.onclose = function() {
-                console.log("WebSocket 连接断开，3秒后尝试重连...");
-                statusText.innerText = "连接断开 (重连中...)";
+                console.log("WS断开，重连中...");
+                if (pingInterval) clearInterval(pingInterval);
+                statusText.innerText = "连接断开";
                 statusIndicator.className = "status-dot status-error";
                 runBtn.disabled = true;
-
-                // 3秒后重连
                 setTimeout(connectWs, 3000);
             };
 
-            ws.onerror = function(err) {
-                console.error("WebSocket 错误:", err);
-                ws.close(); // 触发 onclose 进行重连
-            };
+            ws.onerror = function(err) { ws.close(); };
         }
 
-        // 初始化连接
         connectWs();
 
         function triggerRun() {
@@ -107,12 +167,11 @@
                     .then(data => {
                         if (data.status === 'error') {
                             alert(data.msg);
-                            // 如果出错，恢复按钮状态
                             runBtn.disabled = false;
                         }
                     })
                     .catch(err => {
-                        alert("请求失败: " + err);
+                        alert("请求失败");
                         runBtn.disabled = false;
                     });
             }

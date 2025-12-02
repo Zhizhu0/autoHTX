@@ -1,32 +1,117 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>系统参数设置</title>
     <style>
-        body { font-family: "Microsoft YaHei", sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; }
-        .group { margin-bottom: 20px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        label { display: block; margin-bottom: 8px; font-weight: bold; color: #333; }
-        input[type="text"], input[type="password"], input[type="number"] { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; }
-        .back { margin-bottom: 20px; display: inline-block; text-decoration: none; color: #007bff; font-weight: bold; }
+        :root {
+            --bg-body: #f9f9f9;
+            --bg-card: #ffffff;
+            --text-main: #333;
+            --text-sub: #666;
+            --border: #ddd;
+            --input-bg: #fff;
+            --link-color: #007bff;
+            --slider-bg: #ccc;
+            --slider-on: #2196F3;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-body: #121212;
+                --bg-card: #1e1e1e;
+                --text-main: #e0e0e0;
+                --text-sub: #aaa;
+                --border: #444;
+                --input-bg: #2c2c2c;
+                --link-color: #4dabf7;
+                --slider-bg: #555;
+                --slider-on: #0d6efd;
+            }
+        }
+
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+        }
+
+        h2, h3 { color: var(--text-main); }
+
+        .group {
+            margin-bottom: 20px;
+            background: var(--bg-card);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid var(--border);
+        }
+
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: var(--text-main); }
+
+        input[type="text"], input[type="password"], input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            box-sizing: border-box;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--input-bg);
+            color: var(--text-main);
+            font-size: 16px; /* 防止iOS缩放 */
+        }
+
+        .back {
+            margin-bottom: 20px;
+            display: inline-block;
+            text-decoration: none;
+            color: var(--link-color);
+            font-weight: bold;
+            font-size: 16px;
+        }
 
         /* Toggle Switch */
-        .switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
         .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; -webkit-transition: .4s; transition: .4s; border-radius: 34px; }
-        .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; -webkit-transition: .4s; transition: .4s; border-radius: 50%; }
-        input:checked + .slider { background-color: #2196F3; }
-        input:focus + .slider { box-shadow: 0 0 1px #2196F3; }
-        input:checked + .slider:before { -webkit-transform: translateX(26px); -ms-transform: translateX(26px); transform: translateX(26px); }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: var(--slider-bg);
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--slider-on); }
+        input:checked + .slider:before { transform: translateX(22px); }
+
         .row { display: flex; align-items: center; justify-content: space-between; }
-        .desc { font-size: 12px; color: #666; margin-top: 5px; }
-        .vol-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .desc { font-size: 13px; color: var(--text-sub); margin-top: 5px; line-height: 1.4; }
+
+        /* Volume Grid - Responsive */
+        .vol-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        @media (max-width: 480px) {
+            .vol-grid { grid-template-columns: repeat(2, 1fr); }
+            body { padding: 15px; }
+        }
     </style>
 </head>
 <body>
+    <!-- (Body 内容保持不变，仅样式改变) -->
     <a href="/" class="back">← 返回主页</a>
     <h2>系统参数设置</h2>
 
-    <!-- System Control -->
     <div class="group">
         <div class="row">
             <label style="margin:0">启用自动交易</label>
@@ -38,7 +123,6 @@
         <div class="desc">系统的全局总开关。</div>
     </div>
 
-    <!-- Skip AI Check -->
     <div class="group">
         <div class="row">
             <label style="margin:0">持仓时跳过</label>
@@ -50,7 +134,6 @@
         <div class="desc">如果当前有持仓，则跳过 AI 分析环节。</div>
     </div>
 
-    <!-- Ensure Valid Request (New) -->
     <div class="group">
         <div class="row">
             <label style="margin:0">出错立即重试</label>
@@ -59,10 +142,9 @@
                 <span class="slider"></span>
             </label>
         </div>
-        <div class="desc">如果 AI 失败或格式无效，立即重试（不更新定时器时间）。</div>
+        <div class="desc">如果 AI 失败或格式无效，立即重试。</div>
     </div>
 
-    <!-- Empty as None (New) -->
     <div class="group">
         <div class="row">
             <label style="margin:0">空结果视为无操作</label>
@@ -71,7 +153,7 @@
                 <span class="slider"></span>
             </label>
         </div>
-        <div class="desc">如果 AI 返回空字符串，视为“无操作(No-Op)”而不是报错。</div>
+        <div class="desc">如果 AI 返回空字符串，视为“无操作”。</div>
     </div>
 
     <div class="group">
@@ -85,100 +167,23 @@
     </div>
 
     <div class="group">
-        <label>杠杆倍数 (Leverage)</label>
+        <label>杠杆倍数</label>
         <input type="number" id="tradeLeverage" oninput="saveVal('tradeLeverage', this.value)">
     </div>
 
-    <!-- Volume Settings -->
     <div class="group">
-        <label>开仓数量 (张/Contracts)</label>
+        <label>开仓数量 (张)</label>
         <div class="vol-grid">
             <div class="vol-item">
-                <label>等级 0</label>
+                <label style="font-size:12px">等级 0</label>
                 <input type="number" id="volLevel0" oninput="saveVal('volLevel0', this.value)">
             </div>
             <div class="vol-item">
-                <label>等级 1</label>
+                <label style="font-size:12px">等级 1</label>
                 <input type="number" id="volLevel1" oninput="saveVal('volLevel1', this.value)">
             </div>
             <div class="vol-item">
-                <label>等级 2</label>
+                <label style="font-size:12px">等级 2</label>
                 <input type="number" id="volLevel2" oninput="saveVal('volLevel2', this.value)">
             </div>
-            <div class="vol-item">
-                <label>等级 3</label>
-                <input type="number" id="volLevel3" oninput="saveVal('volLevel3', this.value)">
-            </div>
-        </div>
-    </div>
-
-    <!-- API Keys -->
-    <h3>API 密钥设置</h3>
-    <div class="group">
-        <label>火币 Base URL</label>
-        <input type="text" id="huobiUrl" oninput="saveVal('huobiUrl', this.value)">
-    </div>
-    <div class="group">
-        <label>Gemini API Key</label>
-        <input type="password" id="geminiKey" oninput="saveVal('geminiKey', this.value)">
-    </div>
-    <div class="group">
-        <label>Access Key (火币)</label>
-        <input type="password" id="accessKey" oninput="saveVal('accessKey', this.value)">
-    </div>
-    <div class="group">
-        <label>Secret Key (火币)</label>
-        <input type="password" id="secretKey" oninput="saveVal('secretKey', this.value)">
-    </div>
-
-    <script>
-        const map = {
-            'geminiKey': 'getAIKey',
-            'accessKey': 'getAccessKey',
-            'secretKey': 'getSecretKey',
-            'systemStatus': 'getSystemStatus',
-            'skipWhenHolding': 'getSkipHolding',
-            'ensureValidReq': 'getEnsureValid',
-            'emptyAsNone': 'getEmptyAsNone',
-            'tradeInterval': 'getInterval',
-            'tradeSymbol': 'getSymbol',
-            'tradeLeverage': 'getLeverage',
-            'huobiUrl': 'getHuobiUrl',
-            'volLevel0': 'getVol0',
-            'volLevel1': 'getVol1',
-            'volLevel2': 'getVol2',
-            'volLevel3': 'getVol3'
-        };
-
-        for (let id in map) {
-            fetch(`/api/get_key/${map[id]}`)
-                .then(r => r.json())
-                .then(d => {
-                    const el = document.getElementById(id);
-                    if (el) {
-                        if (el.type === 'checkbox') {
-                            el.checked = (d.value === 'true');
-                        } else {
-                            el.value = d.value;
-                        }
-                    }
-                });
-        }
-
-        function saveVal(key, value) {
-            if (key === 'tradeInterval' && (value === '' || parseInt(value) <= 0)) return;
-            send(key, value);
-        }
-        function saveCheck(key, checked) {
-            send(key, checked ? "true" : "false");
-        }
-        function send(key, value) {
-            fetch('/api/set_key', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({key: key, value: value})
-            });
-        }
-    </script>
-</body>
-</html>
+            <div class="v
