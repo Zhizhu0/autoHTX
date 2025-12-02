@@ -6,6 +6,8 @@ import json
 import uuid
 import sys
 import argparse
+import subprocess
+import requests  # 【新增】用于CLI向服务端发送重启指令
 import jwt
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -22,16 +24,23 @@ from huobi_api import HuobiClient
 from chart_engine import ChartGenerator
 from ai_service import GeminiClient
 
+# JWT 配置 (必须保持一致)
+SECRET_KEY = "AUTOHTX_SECRET_KEY_PLEASE_CHANGE"
+ALGORITHM = "HS256"
+COOKIE_NAME = "access_token"
+
 # --- 参数解析与 CLI 模式 ---
 parser = argparse.ArgumentParser(description='AutoHTX Server')
 group = parser.add_mutually_exclusive_group()
 group.add_argument('--generate_key', action='store_true', help='Generate new server key and clear users')
 group.add_argument('--generate_register_code', action='store_true', help='Generate a new registration code')
+group.add_argument('--update', action='store_true', help='Pull latest code from GitHub and restart server softly')
 
 if __name__ == "__main__":
     # 使用 parse_known_args 避免 uvicorn 启动时的干扰
     args, unknown = parser.parse_known_args()
 
+    # 1. 生成密钥
     if args.generate_key:
         print(">>> 正在生成新的服务器密钥...")
         try:
@@ -42,12 +51,12 @@ if __name__ == "__main__":
             print(f"Error: {e}")
         sys.exit(0)
 
+    # 2. 生成注册码
     if args.generate_register_code:
         try:
             f = db.get_fernet()
             new_uuid = str(uuid.uuid4())
             payload = json.dumps({"uuid": new_uuid})
-            # 加密生成注册码
             code = f.encrypt(payload.encode()).decode()
             print("\n========== 注册码 (复制以下内容) ==========")
             print(code)
@@ -57,39 +66,69 @@ if __name__ == "__main__":
             print("提示：请先运行 --generate_key 生成服务器密钥。")
         sys.exit(0)
 
+    # 3. 【新增】自动更新逻辑 (Client 端)
+    if args.update:
+        print(">>> 正在连接后台服务器进行更新...")
+
+        # 生成一个临时的系统管理员 Token
+        # 这个 Token 专门用于通过 API 触发重启
+        temp_token = jwt.encode({
+            "sub": "system_cli_admin",  # 特殊标识
+            "exp": datetime.utcnow() + timedelta(seconds=60)
+        }, SECRET_KEY, algorithm=ALGORITHM)
+
+        try:
+            # 发送请求给本机运行的服务器
+            resp = requests.post(
+                "http://127.0.0.1:8000/api/system/restart",
+                headers={"Authorization": f"Bearer {temp_token}"},
+                timeout=300  # 给 git pull 留足时间
+            )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                print(f"✅ 更新指令已发送!\nGit Output:\n{data.get('git_output', '')}")
+                print("服务器正在后台热重启 (PID 不变，日志将继续输出)...")
+            else:
+                print(f"❌ 更新请求失败: {resp.status_code} - {resp.text}")
+
+        except requests.exceptions.ConnectionError:
+            print("❌ 无法连接到服务器 (127.0.0.1:8000)。")
+            print("提示: 服务器似乎没有运行。如果是首次部署，请先直接拉取代码并启动。")
+            print("正在尝试执行本地 git pull (非热重启模式)...")
+            try:
+                subprocess.check_call(["git", "pull"])
+                print("本地代码已更新。请手动启动服务器 (nohup python main.py &)。")
+            except Exception as e:
+                print(f"Git pull failed: {e}")
+        except Exception as e:
+            print(f"Error: {e}")
+
+        # 退出 CLI 进程，真正的服务器进程还在后台运行
+        sys.exit(0)
+
 # --- FastAPI App ---
 
 app = FastAPI()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
-# 注意：如果没有 images 文件夹可能需要创建，或者确保 logic 处理了
-# app.mount("/static", StaticFiles(directory="static"), name="static")
-
 chart_gen = ChartGenerator()
 
-# JWT 配置
-SECRET_KEY = "AUTOHTX_SECRET_KEY_PLEASE_CHANGE"
-ALGORITHM = "HS256"
-COOKIE_NAME = "access_token"
 
-
-# --- 自定义异常与处理器 (修复跳转问题的核心) ---
+# --- 自定义异常与处理器 ---
 
 class NotAuthenticatedException(Exception):
-    """自定义未登录异常，用于网页跳转"""
     pass
 
 
 @app.exception_handler(NotAuthenticatedException)
 async def auth_exception_handler(_request: Request, _exc: NotAuthenticatedException):
-    """捕获未登录异常，重定向到登录页"""
     return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
 
 
-# --- 全局状态管理 (多用户) ---
+# --- 全局状态管理 ---
 class GlobalState:
-    # user_id -> boolean
     analyzing_status = {}
 
     @classmethod
@@ -101,10 +140,9 @@ class GlobalState:
         return cls.analyzing_status.get(user_id, False)
 
 
-# --- WebSocket 管理 (多用户) ---
+# --- WebSocket 管理 ---
 class ConnectionManager:
     def __init__(self):
-        # user_id -> List[WebSocket]
         self.active_connections = {}
 
     async def connect(self, websocket: WebSocket, user_id: int):
@@ -117,14 +155,12 @@ class ConnectionManager:
         if user_id in self.active_connections:
             if websocket in self.active_connections[user_id]:
                 self.active_connections[user_id].remove(websocket)
-            # 清理空列表
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
 
     async def broadcast_log(self, user_id, timestamp, level, message):
         if user_id not in self.active_connections: return
         payload = json.dumps({"type": "log", "data": f"[{timestamp}] [{level}] {message}"})
-        # 复制列表进行迭代以防止迭代中修改
         for connection in list(self.active_connections[user_id]):
             try:
                 await connection.send_text(payload)
@@ -164,13 +200,22 @@ db.set_log_callback(on_db_log)
 
 async def get_current_user(request: Request):
     token = request.cookies.get(COOKIE_NAME)
+
+    # 【修改】支持 Header 验证 (用于 CLI 自动更新的权限验证)
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+
     if not token:
         return None
     try:
-        if token.startswith("Bearer "):
-            token = token.split(" ")[1]
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
+
+        # 【修改】识别 CLI 管理员标识
+        if user_id == "system_cli_admin":
+            return "system_cli_admin"
+
         if user_id is None:
             return None
         return int(user_id)
@@ -178,24 +223,15 @@ async def get_current_user(request: Request):
         return None
 
 
-async def login_required(request: Request, user_id: Optional[int] = Depends(get_current_user)):
-    """
-    鉴权依赖项：
-    - 如果是 API 请求，鉴权失败返回 401。
-    - 如果是 页面 请求，鉴权失败抛出异常跳转到 /login。
-    """
+async def login_required(request: Request, user_id=Depends(get_current_user)):
     if not user_id:
-        # 这里的判断很简单：如果路径以 /api 开头，视为 API 请求
         if request.url.path.startswith("/api"):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
-        # 抛出异常，触发 auth_exception_handler 进行跳转
         raise NotAuthenticatedException()
-
     return user_id
 
 
-# --- 核心业务逻辑 ---
+# --- 核心业务逻辑 (保持不变) ---
 
 def get_latest_news():
     try:
@@ -328,6 +364,9 @@ async def execute_trade_action(user_id, action, positions, symbol, leverage):
 
 
 async def run_automated_trading(user_id, force=False):
+    # 【修改】CLI 管理员不执行交易
+    if user_id == "system_cli_admin": return
+
     if GlobalState.is_analyzing(user_id): return
     GlobalState.set_analyzing(user_id, True)
     await ws_manager.broadcast_status(user_id, True)
@@ -419,11 +458,9 @@ async def scheduler_loop():
             now_ts = int(time.time())
 
             for user_id in active_users:
-                # 【新增】关键修复：如果用户正在分析中，直接跳过，防止重复触发
                 if GlobalState.is_analyzing(user_id):
                     continue
 
-                # 独立获取每个用户的配置
                 interval_str = db.get_config(user_id, "trade_interval")
                 interval = int(interval_str) if interval_str and interval_str.isdigit() else 60
                 if interval <= 0: interval = 60
@@ -434,8 +471,6 @@ async def scheduler_loop():
 
                 if current_slot != last_slot:
                     db.add_log(user_id, "SCHEDULER", f"触发定时任务 ({interval}m)")
-                    # 这里 create_task 启动后，GlobalState 会在 run_automated_trading 内部被设为 True
-                    # 但为了保险，建议任务启动稍作延时或依靠下一次循环检测
                     asyncio.create_task(run_and_update(user_id, current_slot, interval))
 
         except Exception as e:
@@ -449,6 +484,57 @@ async def run_and_update(user_id, slot, interval):
     # 如果成功，或者未开启重试，则更新时间戳
     if success or not retry:
         db.set_config(user_id, "last_run_slot", str(slot))
+
+
+# --- 【新增】系统更新 API (Server 端) ---
+
+@app.post("/api/system/restart")
+async def system_restart(user_id=Depends(login_required)):
+    # 验证是否为 CLI 管理员
+    if user_id != "system_cli_admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    repo_url = "https://github.com/Zhizhu0/autoHTX.git"
+    git_output = ""
+
+    try:
+        # 1. 检查 git 环境
+        if not os.path.exists(".git"):
+            # 初始化
+            subprocess.check_call(["git", "init"])
+            subprocess.check_call(["git", "remote", "add", "origin", repo_url])
+            subprocess.check_call(["git", "fetch", "--all"])
+            subprocess.check_call(["git", "reset", "--hard", "origin/main"])
+            subprocess.check_call(["git", "branch", "-M", "main"])
+            git_output += "Initialized git repo and reset to origin/main.\n"
+
+        # 2. 拉取更新 (在 Server 进程中执行)
+        # capture_output 需要 python 3.7+
+        proc = subprocess.run(["git", "pull", "origin", "main"], capture_output=True, text=True)
+        git_output += proc.stdout + "\n" + proc.stderr
+
+        if proc.returncode != 0:
+            return {"status": "error", "git_output": git_output, "msg": "Git pull failed"}
+
+    except Exception as e:
+        return {"status": "error", "git_output": git_output, "msg": str(e)}
+
+    # 3. 安排重启
+    # 使用 call_later 确保 API 先返回响应，然后再重启进程
+    loop = asyncio.get_running_loop()
+    loop.call_later(1.0, _do_restart)
+
+    return {"status": "ok", "git_output": git_output, "msg": "Server restarting..."}
+
+
+def _do_restart():
+    """执行自重启，替换当前进程"""
+    print(">>> Restarting process via os.execv (Hot Reload)...")
+    # sys.executable 是 python 解释器的路径
+    # 固定参数为 main.py，确保重启后不是进入 --update 模式
+    args = [sys.executable, "main.py"]
+    # 这行代码会用新的 main.py 替换当前进程，PID 不变，nohup 不会断
+    os.execv(sys.executable, args)
 
 
 # --- 登录注册路由 ---
@@ -512,24 +598,24 @@ async def logout():
 # --- 受保护路由 ---
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request, user_id: int = Depends(login_required)):
+async def read_root(request: Request, user_id=Depends(login_required)):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/config", response_class=HTMLResponse)
-async def config_page(request: Request, user_id: int = Depends(login_required)):
+async def config_page(request: Request, user_id=Depends(login_required)):
     return templates.TemplateResponse("config.html", {"request": request})
 
 
 @app.get("/logs_view", response_class=HTMLResponse)
-async def logs_page(request: Request, user_id: int = Depends(login_required)):
+async def logs_page(request: Request, user_id=Depends(login_required)):
     logs = db.get_recent_logs(user_id, 200)
     log_text = "\n".join([f"[{l[0]}] [{l[1]}] {l[2]}" for l in logs]) + "\n"
     return templates.TemplateResponse("logs.html", {"request": request, "initial_logs": log_text})
 
 
 @app.get("/show", response_class=HTMLResponse)
-async def show_prompt_page(request: Request, user_id: int = Depends(login_required)):
+async def show_prompt_page(request: Request, user_id=Depends(login_required)):
     try:
         symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
         context, images = await gather_market_data(user_id, symbol)
@@ -540,7 +626,7 @@ async def show_prompt_page(request: Request, user_id: int = Depends(login_requir
 
 
 @app.post("/api/trigger_now")
-async def trigger_now(user_id: int = Depends(login_required)):
+async def trigger_now(user_id=Depends(login_required)):
     if GlobalState.is_analyzing(user_id):
         return {"status": "error", "msg": "Analyzing"}
     asyncio.create_task(run_automated_trading(user_id, force=True))
@@ -548,7 +634,7 @@ async def trigger_now(user_id: int = Depends(login_required)):
 
 
 @app.get("/api/get_key/{key_name}")
-async def get_key(key_name: str, user_id: int = Depends(login_required)):
+async def get_key(key_name: str, user_id=Depends(login_required)):
     CONFIG_MAP = {
         "getAIKey": "gemini_key", "getAccessKey": "access_key", "getSecretKey": "secret_key",
         "getSystemStatus": "is_active", "getInterval": "trade_interval", "getSymbol": "trade_symbol",
@@ -566,7 +652,7 @@ async def get_key(key_name: str, user_id: int = Depends(login_required)):
 
 
 @app.post("/api/set_key")
-async def set_key(data: dict, user_id: int = Depends(login_required)):
+async def set_key(data: dict, user_id=Depends(login_required)):
     FRONTEND_TO_DB_MAP = {
         "geminiKey": "gemini_key", "accessKey": "access_key", "secretKey": "secret_key",
         "systemStatus": "is_active", "tradeInterval": "trade_interval", "tradeSymbol": "trade_symbol",

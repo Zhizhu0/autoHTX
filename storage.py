@@ -1,3 +1,5 @@
+# --- START OF FILE storage.py ---
+
 import sqlite3
 import os
 import json
@@ -51,7 +53,7 @@ class StorageManager:
                          TEXT
                      )''')
 
-        # 配置表 (增加 user_id)
+        # 配置表
         c.execute('''CREATE TABLE IF NOT EXISTS config
         (
             user_id
@@ -68,7 +70,7 @@ class StorageManager:
                      )
             )''')
 
-        # 日志表 (增加 user_id)
+        # 日志表
         c.execute('''CREATE TABLE IF NOT EXISTS logs
                      (
                          id
@@ -85,6 +87,8 @@ class StorageManager:
                          message
                          TEXT
                      )''')
+        # 创建索引以加速查询和删除
+        c.execute("CREATE INDEX IF NOT EXISTS idx_logs_userid_id ON logs (user_id, id)")
         conn.commit()
         conn.close()
 
@@ -211,8 +215,25 @@ class StorageManager:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # 1. 插入新日志
         c.execute("INSERT INTO logs (user_id, timestamp, level, message) VALUES (?, ?, ?, ?)",
                   (user_id, timestamp, level, message))
+
+        # 2. 自动清理：只保留该用户最近的100条日志
+        # 逻辑：删除该用户 id 不在 (前100个倒序id) 之列的所有记录
+        c.execute("""
+                  DELETE
+                  FROM logs
+                  WHERE user_id = ?
+                    AND id NOT IN (SELECT id
+                                   FROM logs
+                                   WHERE user_id = ?
+                                   ORDER BY id DESC
+                      LIMIT 100
+                      )
+                  """, (user_id, user_id))
+
         conn.commit()
         conn.close()
 
