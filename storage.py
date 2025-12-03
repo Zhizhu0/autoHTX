@@ -1,11 +1,9 @@
-# --- START OF FILE storage.py ---
-
-import sqlite3
-import os
 import json
+import os
+import sqlite3
 from datetime import datetime
+
 from cryptography.fernet import Fernet
-import uuid
 
 
 class StorageManager:
@@ -251,6 +249,21 @@ class StorageManager:
                   (user_id, limit))
         rows = c.fetchall()
         conn.close()
+        return list(reversed(rows))
+
+    def get_context_logs(self, user_id, limit=10):
+        """获取用于AI上下文的日志（SUMMARY, USER_INPUT, CHAT_AI）"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        # 修改点：增加了 CHAT_AI，limit 改为 10
+        c.execute("""
+            SELECT level, message FROM logs 
+            WHERE user_id=? AND level IN ('SUMMARY', 'USER_INPUT', 'CHAT_AI') 
+            ORDER BY id DESC LIMIT ?
+        """, (user_id, limit))
+        rows = c.fetchall()
+        conn.close()
+        # 保持时间顺序：最旧的在前
         return list(reversed(rows))
 
 

@@ -12,6 +12,8 @@
             --textarea-text: #00ff00;
             --textarea-border: #444;
             --link-color: #4dabf7;
+            --btn-bg: #444;
+            --input-bg: #333;
         }
 
         @media (prefers-color-scheme: light) {
@@ -22,6 +24,8 @@
                 --textarea-text: #333;
                 --textarea-border: #ccc;
                 --link-color: #007bff;
+                --btn-bg: #e0e0e0;
+                --input-bg: #fff;
             }
         }
 
@@ -48,7 +52,7 @@
 
         a { color: var(--link-color); text-decoration: none; font-size: 16px; font-weight: bold; }
 
-        .controls { display: flex; align-items: center; }
+        .controls { display: flex; align-items: center; gap: 10px; }
 
         .btn-run {
             background: #d32f2f;
@@ -77,27 +81,121 @@
             border-radius: 4px;
             font-size: 13px;
             line-height: 1.4;
+            color-scheme: dark;
         }
+
+        @media (prefers-color-scheme: dark) and (max-width: 768px) {
+            textarea {
+                background-color: #1e1e1e !important;
+                color: #00ff00 !important;
+                border-color: #444 !important;
+            }
+        }
+
+        .chat-bar {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .chat-input {
+            flex: 1;
+            min-width: 200px;
+            padding: 10px;
+            background: var(--input-bg);
+            color: var(--text-main);
+            border: 1px solid var(--textarea-border);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .btn-chat {
+            background: var(--link-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 80px;
+            transition: all 0.3s;
+        }
+        .btn-chat:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            background: #666;
+        }
+
+        .btn-chat-sec {
+            background: var(--btn-bg);
+            color: var(--text-main);
+            border: 1px solid var(--textarea-border);
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            display: none;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #ffffff;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .btn-loading .spinner { display: block; }
     </style>
 </head>
 <body>
     <div class="header">
         <a href="/">← 返回</a>
         <div class="controls">
-            <span id="statusIndicator" class="status-dot"></span>
-            <span id="statusText" style="margin-right: 15px; font-size: 12px;">连接中...</span>
+            <div>
+                <span id="statusIndicator" class="status-dot"></span>
+                <span id="statusText" style="margin-right: 5px; font-size: 12px;">连接中...</span>
+            </div>
             <button id="runBtn" class="btn-run" onclick="triggerRun()">立即运行 AI</button>
         </div>
     </div>
 
     <textarea id="logArea" readonly>{{ initial_logs }}</textarea>
 
-    <!-- Script 保持不变 -->
+    <div class="chat-bar">
+        <input type="text" id="chatInput" class="chat-input" placeholder="输入消息 (记录到日志/与AI对话)..." onkeypress="handleKeyPress(event)">
+
+        <button id="sendBtn" class="btn-chat" onclick="sendMessage()">
+            <span class="spinner"></span>
+            <span class="btn-text">发送消息</span>
+        </button>
+
+        <button id="triggerChatBtn" class="btn-chat btn-chat-sec" style="display:none;" onclick="triggerChatAI()">
+            <span class="spinner" style="border-color: var(--text-main) transparent var(--text-main) var(--text-main);"></span>
+            <span class="btn-text">请求聊天AI</span>
+        </button>
+    </div>
+
     <script>
         const area = document.getElementById('logArea');
         const runBtn = document.getElementById('runBtn');
         const statusText = document.getElementById('statusText');
         const statusIndicator = document.getElementById('statusIndicator');
+        const chatInput = document.getElementById('chatInput');
+        const triggerChatBtn = document.getElementById('triggerChatBtn');
+        const sendBtn = document.getElementById('sendBtn');
+
+        // 模板注入变量
+        const immediateTrigger = {{ 'true' if trigger_immediate else 'false' }};
+
+        if (!immediateTrigger) {
+            triggerChatBtn.style.display = 'flex'; // 使用 flex 配合 spinner 居中
+        }
 
         area.scrollTop = area.scrollHeight;
 
@@ -105,16 +203,35 @@
             if (isAnalyzing) {
                 runBtn.disabled = true;
                 runBtn.innerText = "运行中...";
-                statusText.innerText = "正在分析...";
+                statusText.innerText = "分析中";
                 statusIndicator.className = "status-dot status-active";
             } else {
                 runBtn.disabled = false;
-                runBtn.innerText = "立即运行 AI 分析";
+                runBtn.innerText = "立即运行 AI";
                 statusText.innerText = "空闲";
                 statusIndicator.className = "status-dot";
             }
         }
 
+        // --- 按钮 Loading 状态控制 ---
+        let chatWaitTimer = null;
+
+        function setLoading(btn, isLoading, text) {
+            const spinner = btn.querySelector('.spinner');
+            const spanText = btn.querySelector('.btn-text');
+
+            if (isLoading) {
+                btn.disabled = true;
+                btn.classList.add('btn-loading');
+                spanText.innerText = text;
+            } else {
+                btn.disabled = false;
+                btn.classList.remove('btn-loading');
+                spanText.innerText = text;
+            }
+        }
+
+        // --- WebSocket ---
         let ws;
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs`;
@@ -125,7 +242,7 @@
 
             ws.onopen = function() {
                 console.log("WebSocket 已连接");
-                if (statusText.innerText !== "正在分析...") {
+                if (statusText.innerText !== "分析中") {
                     statusText.innerText = "空闲";
                     statusIndicator.className = "status-dot";
                     runBtn.disabled = false;
@@ -140,6 +257,14 @@
                 if (msg.type === 'log') {
                     area.value += msg.data + "\n";
                     area.scrollTop = area.scrollHeight;
+
+                    // 监听日志内容，自动取消 Loading 状态
+                    // 日志格式: [时间] [LEVEL] Message
+                    // 只要看到 [CHAT_AI] 或 [CHAT_ERR] 说明 AI 回复了
+                    if (msg.data.includes('] [CHAT_AI]') || msg.data.includes('] [CHAT_ERR]')) {
+                        stopChatLoading();
+                    }
+
                 } else if (msg.type === 'status') {
                     updateState(msg.is_analyzing);
                 }
@@ -148,19 +273,71 @@
             ws.onclose = function() {
                 console.log("WS断开，重连中...");
                 if (pingInterval) clearInterval(pingInterval);
-                statusText.innerText = "连接断开";
+                statusText.innerText = "断开";
                 statusIndicator.className = "status-dot status-error";
                 runBtn.disabled = true;
                 setTimeout(connectWs, 3000);
             };
-
-            ws.onerror = function(err) { ws.close(); };
         }
 
         connectWs();
 
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') sendMessage();
+        }
+
+        function stopChatLoading() {
+            // 清除超时计时器
+            if (chatWaitTimer) clearTimeout(chatWaitTimer);
+            chatWaitTimer = null;
+
+            // 恢复按钮状态
+            setLoading(sendBtn, false, "发送消息");
+            setLoading(triggerChatBtn, false, "请求聊天AI");
+        }
+
+        function sendMessage() {
+            const msg = chatInput.value.trim();
+            if (!msg) return;
+
+            // 1. 发送消息到日志
+            fetch('/api/send_user_message', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: msg})
+            }).then(() => {
+                chatInput.value = '';
+
+                // 2. 如果开启了立即触发，则让发送按钮转圈
+                if (immediateTrigger) {
+                    setLoading(sendBtn, true, "请求中...");
+                    triggerChatAI(true); // pass true to indicate it's from send button
+                }
+            });
+        }
+
+        function triggerChatAI(fromSendBtn = false) {
+            // 如果不是来自发送按钮的自动触发，则是手动点击，让手动按钮转圈
+            if (!fromSendBtn) {
+                setLoading(triggerChatBtn, true, "请求中...");
+            }
+
+            // 设置一个最长超时，防止 websocket 没收到消息按钮一直卡死 (例如60秒)
+            if (chatWaitTimer) clearTimeout(chatWaitTimer);
+            chatWaitTimer = setTimeout(() => {
+                stopChatLoading();
+                alert("请求超时或未收到AI响应，请检查日志。");
+            }, 180000);
+
+            fetch('/api/trigger_chat', { method: 'POST' })
+                .catch(err => {
+                    stopChatLoading();
+                    alert("请求失败");
+                });
+        }
+
         function triggerRun() {
-            if (confirm("确认立即执行？这将忽略持仓状态检查。")) {
+            if (confirm("确认立即执行交易分析？")) {
                 runBtn.disabled = true;
                 fetch('/api/trigger_now', { method: 'POST' })
                     .then(r => r.json())
@@ -169,10 +346,6 @@
                             alert(data.msg);
                             runBtn.disabled = false;
                         }
-                    })
-                    .catch(err => {
-                        alert("请求失败");
-                        runBtn.disabled = false;
                     });
             }
         }

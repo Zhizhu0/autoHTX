@@ -7,28 +7,51 @@ from storage import db
 class GeminiClient:
     def __init__(self, user_id):
         self.user_id = user_id
-        self.api_url = "https://api.gemai.cc/v1/chat/completions"
-        self.model = "[满血A]gemini-3-pro-preview"
+        # 默认配置
+        self.default_api_url = "https://api.gemai.cc/v1/chat/completions"
+        self.default_model = "[满血A]gemini-3-pro-preview"
 
-    def get_analysis(self, system_prompt, user_text, images_base64):
+    def _get_api_config(self, is_chat_mode=False):
+        """获取 API 配置，处理聊天 AI 的 fallback 逻辑"""
+
+        # 基础配置 (Analysis AI)
+        base_api_url = db.get_config(self.user_id, "ai_api_url") or self.default_api_url
+        base_model = db.get_config(self.user_id, "ai_model") or self.default_model
+
+        if not is_chat_mode:
+            return base_api_url, base_model
+
+        # 聊天模式配置
+        use_same = db.get_config(self.user_id, "use_same_ai") == "true"
+        if use_same:
+            return base_api_url, base_model
+
+        # 独立的 Chat 配置
+        chat_url = db.get_config(self.user_id, "chat_api_url")
+        chat_model = db.get_config(self.user_id, "chat_model")
+
+        return (chat_url if chat_url else base_api_url), (chat_model if chat_model else base_model)
+
+    def _call_llm(self, api_url, model, system_prompt, user_text, images_base64=None):
         api_key = db.get_config(self.user_id, "gemini_key")
-        empty_as_none = db.get_config(self.user_id, "empty_as_none") == "true"
-
         if not api_key:
             raise ValueError("Gemini API Key 未设置")
 
         messages = [{"role": "system", "content": system_prompt}]
         user_content = [{"type": "text", "text": user_text}]
-        for img_b64 in images_base64:
-            if img_b64:
-                user_content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{img_b64}"}
-                })
+
+        if images_base64:
+            for img_b64 in images_base64:
+                if img_b64:
+                    user_content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{img_b64}"}
+                    })
+
         messages.append({"role": "user", "content": user_content})
 
         payload = {
-            "model": self.model,
+            "model": model,
             "messages": messages,
             "stream": False
         }
@@ -38,13 +61,19 @@ class GeminiClient:
             "Authorization": f"Bearer {api_key}"
         }
 
-        try:
-            response = requests.post(self.api_url, headers=headers, json=payload, timeout=120)
-            if response.status_code != 200:
-                raise Exception(f"AI API Error: {response.text}")
+        response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        if response.status_code != 200:
+            raise Exception(f"AI API Error: {response.text}")
 
-            result = response.json()
-            content = result['choices'][0]['message']['content']
+        result = response.json()
+        return result['choices'][0]['message']['content']
+
+    def get_analysis(self, system_prompt, user_text, images_base64):
+        api_url, model = self._get_api_config(is_chat_mode=False)
+        empty_as_none = db.get_config(self.user_id, "empty_as_none") == "true"
+
+        try:
+            content = self._call_llm(api_url, model, system_prompt, user_text, images_base64)
 
             if not content or not content.strip():
                 if empty_as_none:
@@ -53,18 +82,35 @@ class GeminiClient:
                 else:
                     raise Exception("AI返回内容为空")
 
+            # 提取 JSON
             blocks = re.findall(r'\{.*?}', content, re.S)
             if blocks:
                 for block in blocks:
                     try:
                         obj = json.loads(block)
                         if "summary" in obj:
-                            content = block
-                            break
+                            return obj
                     except:
                         continue
 
-            return json.loads(content)
+            # 尝试直接解析
+            try:
+                return json.loads(content)
+            except:
+                pass
+
+            raise Exception("AI返回格式无法解析为JSON")
+
         except Exception as e:
             db.add_log(self.user_id, "AI_ERROR", str(e))
             raise e
+
+    def get_chat_response(self, system_prompt, user_text, images_base64):
+        """聊天 AI 调用"""
+        api_url, model = self._get_api_config(is_chat_mode=True)
+        try:
+            content = self._call_llm(api_url, model, system_prompt, user_text, images_base64)
+            return content
+        except Exception as e:
+            db.add_log(self.user_id, "CHAT_ERR", str(e))
+            return f"聊天请求失败: {str(e)}"

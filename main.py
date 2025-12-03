@@ -1,28 +1,26 @@
-import math
-import os
-import time
+import argparse
 import asyncio
 import json
-import uuid
-import sys
-import argparse
+import os
 import subprocess
-import requests  # 【新增】用于CLI向服务端发送重启指令
-import jwt
+import sys
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
 
+import feedparser
+import jwt
+import requests
+import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-import uvicorn
-import feedparser
+from fastapi.templating import Jinja2Templates
 
-from storage import db
-from huobi_api import HuobiClient
-from chart_engine import ChartGenerator
 from ai_service import GeminiClient
+from chart_engine import ChartGenerator
+from huobi_api import HuobiClient
+from storage import db
 
 # JWT 配置 (必须保持一致)
 SECRET_KEY = "AUTOHTX_SECRET_KEY_PLEASE_CHANGE"
@@ -37,10 +35,8 @@ group.add_argument('--generate_register_code', action='store_true', help='Genera
 group.add_argument('--update', action='store_true', help='Pull latest code from GitHub and restart server softly')
 
 if __name__ == "__main__":
-    # 使用 parse_known_args 避免 uvicorn 启动时的干扰
     args, unknown = parser.parse_known_args()
 
-    # 1. 生成密钥
     if args.generate_key:
         print(">>> 正在生成新的服务器密钥...")
         try:
@@ -51,7 +47,6 @@ if __name__ == "__main__":
             print(f"Error: {e}")
         sys.exit(0)
 
-    # 2. 生成注册码
     if args.generate_register_code:
         try:
             f = db.get_fernet()
@@ -66,23 +61,18 @@ if __name__ == "__main__":
             print("提示：请先运行 --generate_key 生成服务器密钥。")
         sys.exit(0)
 
-    # 3. 【新增】自动更新逻辑 (Client 端)
     if args.update:
         print(">>> 正在连接后台服务器进行更新...")
-
-        # 生成一个临时的系统管理员 Token
-        # 这个 Token 专门用于通过 API 触发重启
         temp_token = jwt.encode({
-            "sub": "system_cli_admin",  # 特殊标识
+            "sub": "system_cli_admin",
             "exp": datetime.now(timezone.utc) + timedelta(seconds=60)
         }, SECRET_KEY, algorithm=ALGORITHM)
 
         try:
-            # 发送请求给本机运行的服务器
             resp = requests.post(
                 "http://127.0.0.1:8000/api/system/restart",
                 headers={"Authorization": f"Bearer {temp_token}"},
-                timeout=300  # 给 git pull 留足时间
+                timeout=300
             )
 
             if resp.status_code == 200:
@@ -97,14 +87,12 @@ if __name__ == "__main__":
             print("提示: 服务器似乎没有运行。如果是首次部署，请先直接拉取代码并启动。")
             print("正在尝试执行本地 git pull (非热重启模式)...")
             try:
-                subprocess.check_call(["git", "pull"])
+                subprocess.check_call(["git", "pull", "origin", "master"])
                 print("本地代码已更新。请手动启动服务器 (nohup python main.py &)。")
             except Exception as e:
                 print(f"Git pull failed: {e}")
         except Exception as e:
             print(f"Error: {e}")
-
-        # 退出 CLI 进程，真正的服务器进程还在后台运行
         sys.exit(0)
 
 # --- FastAPI App ---
@@ -195,11 +183,12 @@ def on_db_log(user_id, t, l, m):
 
 db.set_log_callback(on_db_log)
 
+
 def get_aggression_prompt(level_str):
     try:
         level = int(level_str)
     except:
-        level = 2  # 默认等级
+        level = 2
 
     if level == 0:
         return (
@@ -244,12 +233,11 @@ def get_aggression_prompt(level_str):
         )
     return ""
 
+
 # --- 鉴权依赖 ---
 
 async def get_current_user(request: Request):
     token = request.cookies.get(COOKIE_NAME)
-
-    # 优先检查 Header (用于 CLI 等)
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
@@ -257,18 +245,14 @@ async def get_current_user(request: Request):
     if not token:
         return None
 
-    # 【修复点在这里】：如果 Token 来自 Cookie 且包含 "Bearer " 前缀，需要去掉
     if token.startswith("Bearer "):
         token = token.replace("Bearer ", "")
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
-
-        # 识别 CLI 管理员标识
         if user_id == "system_cli_admin":
             return "system_cli_admin"
-
         if user_id is None:
             return None
         return int(user_id)
@@ -284,7 +268,7 @@ async def login_required(request: Request, user_id=Depends(get_current_user)):
     return user_id
 
 
-# --- 核心业务逻辑 (保持不变) ---
+# --- 核心业务逻辑 ---
 
 def get_latest_news():
     try:
@@ -416,6 +400,35 @@ async def execute_trade_action(user_id, action, positions, symbol, leverage):
     await asyncio.to_thread(_sync_exec)
 
 
+async def build_ai_context(user_id, symbol):
+    """构建AI所需的上下文数据"""
+    # 1. 市场数据
+    context_data, images = await gather_market_data(user_id, symbol)
+
+    # 2. 策略
+    agg_level = db.get_config(user_id, "aggression_level") or "2"
+    strategy_prompt = get_aggression_prompt(agg_level)
+
+    # 3. 历史交互日志 (User Input & AI Summary & Chat AI)
+    logs = db.get_context_logs(user_id, limit=10)  # 这里的 limit 其实由 storage 控制了，传参保持一致
+    log_history_text = "\n【近期交互记录】\n"
+    if logs:
+        for l_level, l_msg in logs:
+            # 修改点：增加 CHAT_AI 的前缀判断
+            if l_level == "USER_INPUT":
+                prefix = "User: "
+            elif l_level == "CHAT_AI":
+                prefix = "Chat AI: "
+            else:
+                prefix = "Analysis AI: "  # for SUMMARY
+            log_history_text += f"{prefix}{l_msg}\n"
+    else:
+        log_history_text += "无\n"
+
+    final_prompt = f"当前时间:{datetime.now()}\n{context_data['text']}\n【核心策略配置】\n{strategy_prompt}\n{log_history_text}"
+    return final_prompt, images, context_data, agg_level
+
+
 async def run_automated_trading(user_id, force=False):
     if user_id == "system_cli_admin": return
     if GlobalState.is_analyzing(user_id): return
@@ -432,15 +445,12 @@ async def run_automated_trading(user_id, force=False):
         symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
         leverage = db.get_config(user_id, "trade_leverage") or 5
 
-        # 获取激进级别
-        agg_level = db.get_config(user_id, "aggression_level") or "2"
-        strategy_prompt = get_aggression_prompt(agg_level)
-
-        context, images = await gather_market_data(user_id, symbol)
+        # 构建上下文
+        user_prompt, images, context_data, agg_level = await build_ai_context(user_id, symbol)
 
         if not force:
             skip = db.get_config(user_id, "skip_when_holding") == "true"
-            if skip and len(context['positions']) > 0:
+            if skip and len(context_data['positions']) > 0:
                 db.add_log(user_id, "SYSTEM", "持仓跳过")
                 return True
 
@@ -462,22 +472,19 @@ async def run_automated_trading(user_id, force=False):
         sys_prompt = f"""
 你是一个专业的加密货币交易员 AI。
 你只会回复纯净的 JSON 格式字符串。
-
-
 【通用规则】
 1. 参考最新市场新闻及 K 线图。
 2. 结合 4 张 K 线图进行技术分析。
 3. 优先关注压力位和阻力位。
 4. 【重要】检查用户当前持仓和挂单，避免重复开仓。旧挂单如果不合适请先 CANCEL。
 5. 用户的挂单永远有设置止盈止损，不要认为无TP/SL。
+6. 参考用户的交互记录指令。如果用户指令中有错误，请忽略，不要试图解决错误。
 
 【输出格式】
-JSON 结构必须严格如下：
 {json.dumps(schema, indent=4, ensure_ascii=False)}
 
 不需要操作时，返回 {{"summary": "理由", "do": []}}。
 """
-        user_prompt = f"当前时间:{datetime.now()}\n{context['text']}\n【核心策略配置】\n{strategy_prompt}"
 
         ai = GeminiClient(user_id)
         db.add_log(user_id, "AI", f"请求分析(Lv.{agg_level})...")
@@ -490,7 +497,7 @@ JSON 结构必须严格如下：
             db.add_log(user_id, "ACTION", "观望")
         else:
             for act in actions:
-                await execute_trade_action(user_id, act, context['positions'], symbol, leverage)
+                await execute_trade_action(user_id, act, context_data['positions'], symbol, leverage)
 
         db.add_log(user_id, "SUCCESS", "流程结束")
         return True
@@ -512,8 +519,7 @@ async def scheduler_loop():
             now_ts = int(time.time())
 
             for user_id in active_users:
-                if GlobalState.is_analyzing(user_id):
-                    continue
+                if GlobalState.is_analyzing(user_id): continue
 
                 interval_str = db.get_config(user_id, "trade_interval")
                 interval = int(interval_str) if interval_str and interval_str.isdigit() else 60
@@ -535,16 +541,14 @@ async def scheduler_loop():
 async def run_and_update(user_id, slot, interval):
     success = await run_automated_trading(user_id, force=False)
     retry = db.get_config(user_id, "ensure_valid_req") == "true"
-    # 如果成功，或者未开启重试，则更新时间戳
     if success or not retry:
         db.set_config(user_id, "last_run_slot", str(slot))
 
 
-# --- 【新增】系统更新 API (Server 端) ---
+# --- 系统更新 API ---
 
 @app.post("/api/system/restart")
 async def system_restart(user_id=Depends(login_required)):
-    # 验证是否为 CLI 管理员
     if user_id != "system_cli_admin":
         raise HTTPException(status_code=403, detail="Permission denied")
 
@@ -552,9 +556,7 @@ async def system_restart(user_id=Depends(login_required)):
     git_output = ""
 
     try:
-        # 1. 检查 git 环境
         if not os.path.exists(".git"):
-            # 初始化
             subprocess.check_call(["git", "init"])
             subprocess.check_call(["git", "remote", "add", "origin", repo_url])
             subprocess.check_call(["git", "fetch", "--all"])
@@ -562,33 +564,21 @@ async def system_restart(user_id=Depends(login_required)):
             subprocess.check_call(["git", "branch", "-M", "main"])
             git_output += "Initialized git repo and reset to origin/main.\n"
 
-        # 2. 拉取更新 (在 Server 进程中执行)
-        # capture_output 需要 python 3.7+
         proc = subprocess.run(["git", "pull", "origin", "main"], capture_output=True, text=True)
         git_output += proc.stdout + "\n" + proc.stderr
-
         if proc.returncode != 0:
             return {"status": "error", "git_output": git_output, "msg": "Git pull failed"}
-
     except Exception as e:
         return {"status": "error", "git_output": git_output, "msg": str(e)}
 
-    # 3. 安排重启
-    # 使用 call_later 确保 API 先返回响应，然后再重启进程
     loop = asyncio.get_running_loop()
     loop.call_later(1.0, _do_restart)
-
     return {"status": "ok", "git_output": git_output, "msg": "Server restarting..."}
 
 
 def _do_restart():
-    """执行自重启，替换当前进程"""
     print(">>> Restarting process via os.execv (Hot Reload)...")
-    # sys.executable 是 python 解释器的路径
-    # 固定参数为 main.py，确保重启后不是进入 --update 模式
-    args = [sys.executable, "main.py"]
-    # 这行代码会用新的 main.py 替换当前进程，PID 不变，nohup 不会断
-    os.execv(sys.executable, args)
+    os.execv(sys.executable, [sys.executable, "main.py"])
 
 
 # --- 登录注册路由 ---
@@ -603,17 +593,13 @@ async def login_submit(request: Request):
     form = await request.form()
     username = form.get("username")
     password = form.get("password")
-
     user_id = db.verify_user(username, password)
     if not user_id:
         return templates.TemplateResponse("login.html", {"request": request, "error": "用户名或密码错误"})
-
-    # 登录成功，生成Token
     token = jwt.encode({
         "sub": str(user_id),
         "exp": datetime.now(timezone.utc) + timedelta(days=7)
     }, SECRET_KEY, algorithm=ALGORITHM)
-
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie(key=COOKIE_NAME, value=f"Bearer {token}", httponly=True)
     return resp
@@ -631,10 +617,8 @@ async def register_submit(request: Request):
     p1 = form.get("password")
     p2 = form.get("confirm_password")
     code = form.get("register_code")
-
     if p1 != p2:
         return templates.TemplateResponse("register.html", {"request": request, "error": "两次密码不一致"})
-
     try:
         db.register_user(username, p1, code)
         return RedirectResponse("/login", status_code=303)
@@ -665,7 +649,13 @@ async def config_page(request: Request, user_id=Depends(login_required)):
 async def logs_page(request: Request, user_id=Depends(login_required)):
     logs = db.get_recent_logs(user_id, 200)
     log_text = "\n".join([f"[{l[0]}] [{l[1]}] {l[2]}" for l in logs]) + "\n"
-    return templates.TemplateResponse("logs.html", {"request": request, "initial_logs": log_text})
+    # 获取 Chat 配置
+    trigger_immediate = db.get_config(user_id, "chat_trigger_immediate") == "true"
+    return templates.TemplateResponse("logs.html", {
+        "request": request,
+        "initial_logs": log_text,
+        "trigger_immediate": trigger_immediate
+    })
 
 
 @app.get("/show", response_class=HTMLResponse)
@@ -677,17 +667,8 @@ async def show_prompt_page(request: Request, user_id=Depends(login_required)):
 async def get_show_data(user_id=Depends(login_required)):
     try:
         symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
-        agg_level = db.get_config(user_id, "aggression_level") or "2"
-        strategy_prompt = get_aggression_prompt(agg_level)
-
-        context, images = await gather_market_data(user_id, symbol)
-
-        # 构造完整预览 Prompt 给前端看
-        preview_prompt = (
-            f"当前时间:{datetime.now()}\n{context['text']}\n【核心策略配置】\n{strategy_prompt}"
-        )
-
-        return {"status": "ok", "prompt": preview_prompt, "images": images}
+        user_prompt, images, context, agg_level = await build_ai_context(user_id, symbol)
+        return {"status": "ok", "prompt": user_prompt, "images": images}
     except Exception as e:
         return {"status": "error", "msg": str(e)}
 
@@ -700,6 +681,41 @@ async def trigger_now(user_id=Depends(login_required)):
     return {"status": "ok"}
 
 
+# --- 新增：用户发送日志/聊天接口 ---
+
+@app.post("/api/send_user_message")
+async def send_user_message(data: dict, user_id=Depends(login_required)):
+    msg = data.get("message", "").strip()
+    if not msg: return {"status": "error", "msg": "Empty message"}
+    db.add_log(user_id, "USER_INPUT", msg)
+    return {"status": "ok"}
+
+
+@app.post("/api/trigger_chat")
+async def trigger_chat(user_id=Depends(login_required)):
+    # 修改点：请求开始前立即写入日志，给前端反馈
+    db.add_log(user_id, "SYSTEM", "正在请求 Chat AI...")
+
+    # 聊天 AI 调用
+    async def _chat_task():
+        try:
+            symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
+            user_prompt, images, _, _ = await build_ai_context(user_id, symbol)
+
+            sys_prompt = "你是一个加密货币交易助手。请根据提供的市场数据、账户状态和近期日志回答用户。保持简洁，客观，不要使用Emoji，不要输出JSON格式，不要用Markdown格式，尽量不换行，直接以纯文本回答。"
+
+            ai = GeminiClient(user_id)
+            response = await asyncio.to_thread(ai.get_chat_response, sys_prompt, user_prompt, images)
+            db.add_log(user_id, "CHAT_AI", response)
+        except Exception as e:
+            db.add_log(user_id, "CHAT_ERR", str(e))
+
+    asyncio.create_task(_chat_task())
+    return {"status": "ok"}
+
+
+# --- 配置接口 ---
+
 @app.get("/api/get_key/{key_name}")
 async def get_key(key_name: str, user_id=Depends(login_required)):
     CONFIG_MAP = {
@@ -708,14 +724,22 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
         "getLeverage": "trade_leverage", "getHuobiUrl": "huobi_api_url", "getSkipHolding": "skip_when_holding",
         "getEnsureValid": "ensure_valid_req", "getEmptyAsNone": "empty_as_none",
         "getVol0": "vol_level_0", "getVol1": "vol_level_1", "getVol2": "vol_level_2", "getVol3": "vol_level_3",
-        "getAggressionLevel": "aggression_level"
+        "getAggressionLevel": "aggression_level",
+        # 新增配置
+        "getAiApiUrl": "ai_api_url", "getAiModel": "ai_model",
+        "getChatApiUrl": "chat_api_url", "getChatModel": "chat_model",
+        "getUseSameAi": "use_same_ai", "getChatTrigger": "chat_trigger_immediate"
     }
     db_key = CONFIG_MAP.get(key_name)
     if not db_key: return {"value": ""}
 
     val = db.get_config(user_id, db_key)
-    # 默认值处理
-    defaults = {"getSymbol": "ETH-USDT", "getLeverage": "5", "getInterval": "60", "getAggressionLevel": "2"}
+    # 默认值
+    defaults = {
+        "getSymbol": "ETH-USDT", "getLeverage": "5", "getInterval": "60", "getAggressionLevel": "2",
+        "getAiApiUrl": "https://api.gemai.cc/v1/chat/completions",
+        "getAiModel": "[满血A]gemini-3-pro-preview"
+    }
     if val == "" and key_name in defaults: val = defaults[key_name]
     return {"value": val}
 
@@ -728,18 +752,29 @@ async def set_key(data: dict, user_id=Depends(login_required)):
         "tradeLeverage": "trade_leverage", "huobiUrl": "huobi_api_url", "skipWhenHolding": "skip_when_holding",
         "ensureValidReq": "ensure_valid_req", "emptyAsNone": "empty_as_none",
         "volLevel0": "vol_level_0", "volLevel1": "vol_level_1", "volLevel2": "vol_level_2", "volLevel3": "vol_level_3",
-        "aggressionLevel": "aggression_level"
+        "aggressionLevel": "aggression_level",
+        # 新增
+        "aiApiUrl": "ai_api_url", "aiModel": "ai_model",
+        "chatApiUrl": "chat_api_url", "chatModel": "chat_model",
+        "useSameAi": "use_same_ai", "chatTrigger": "chat_trigger_immediate"
     }
     key_name = data.get("key")
     if key_name in FRONTEND_TO_DB_MAP:
-        db.set_config(user_id, FRONTEND_TO_DB_MAP[key_name], str(data.get("value")))
+        db_key = FRONTEND_TO_DB_MAP[key_name]
+        new_val = str(data.get("value"))
+        old_val = db.get_config(user_id, db_key)
+
+        # 记录变更日志 (密码类除外)
+        if "Key" not in key_name and old_val != new_val:
+            db.add_log(user_id, "CONFIG", f"修改配置 {key_name}: {old_val} -> {new_val}")
+
+        db.set_config(user_id, db_key, new_val)
         return {"status": "ok"}
     return {"status": "error"}
 
 
 @app.websocket("/ws/logs")
 async def websocket_endpoint(websocket: WebSocket):
-    # 手动解析 Cookie 获取 user_id
     cookie = websocket.cookies.get(COOKIE_NAME)
     user_id = None
     if cookie:
@@ -755,13 +790,11 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     await ws_manager.connect(websocket, user_id)
-    # 发送状态
     await ws_manager.broadcast_status(user_id, GlobalState.is_analyzing(user_id))
     try:
         while True:
             data = await websocket.receive_text()
-            if data == "ping":
-                continue
+            if data == "ping": continue
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket, user_id)
 
@@ -774,4 +807,4 @@ async def startup_event():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
