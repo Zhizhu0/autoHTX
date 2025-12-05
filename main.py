@@ -118,6 +118,7 @@ async def auth_exception_handler(_request: Request, _exc: NotAuthenticatedExcept
 # --- 全局状态管理 ---
 class GlobalState:
     analyzing_status = {}
+    chat_status = {}  # 记录 Chat AI 状态
 
     @classmethod
     def set_analyzing(cls, user_id, status):
@@ -126,6 +127,14 @@ class GlobalState:
     @classmethod
     def is_analyzing(cls, user_id):
         return cls.analyzing_status.get(user_id, False)
+
+    @classmethod
+    def set_chatting(cls, user_id, status):
+        cls.chat_status[user_id] = status
+
+    @classmethod
+    def is_chatting(cls, user_id):
+        return cls.chat_status.get(user_id, False)
 
 
 # --- WebSocket 管理 ---
@@ -155,9 +164,14 @@ class ConnectionManager:
             except:
                 pass
 
-    async def broadcast_status(self, user_id, is_analyzing):
+    async def broadcast_status(self, user_id):
+        """同时广播分析状态和聊天状态"""
         if user_id not in self.active_connections: return
-        payload = json.dumps({"type": "status", "is_analyzing": is_analyzing})
+        payload = json.dumps({
+            "type": "status",
+            "is_analyzing": GlobalState.is_analyzing(user_id),
+            "is_chatting": GlobalState.is_chatting(user_id)
+        })
         for connection in list(self.active_connections[user_id]):
             try:
                 await connection.send_text(payload)
@@ -410,11 +424,10 @@ async def build_ai_context(user_id, symbol):
     strategy_prompt = get_aggression_prompt(agg_level)
 
     # 3. 历史交互日志 (User Input & AI Summary & Chat AI)
-    logs = db.get_context_logs(user_id, limit=10)  # 这里的 limit 其实由 storage 控制了，传参保持一致
+    logs = db.get_context_logs(user_id, limit=10)
     log_history_text = "\n【近期交互记录】\n"
     if logs:
         for l_level, l_msg in logs:
-            # 修改点：增加 CHAT_AI 的前缀判断
             if l_level == "USER_INPUT":
                 prefix = "User: "
             elif l_level == "CHAT_AI":
@@ -433,7 +446,7 @@ async def run_automated_trading(user_id, force=False):
     if user_id == "system_cli_admin": return
     if GlobalState.is_analyzing(user_id): return
     GlobalState.set_analyzing(user_id, True)
-    await ws_manager.broadcast_status(user_id, True)
+    await ws_manager.broadcast_status(user_id)
 
     try:
         gemini_key = db.get_config(user_id, "gemini_key")
@@ -468,7 +481,7 @@ async def run_automated_trading(user_id, force=False):
             ]
         }
 
-        # 2. 修改：SysPrompt 移除硬编码的稳健限制，注入策略Prompt
+        # SysPrompt
         sys_prompt = f"""
 你是一个专业的加密货币交易员 AI。
 你只会回复纯净的 JSON 格式字符串。
@@ -478,7 +491,7 @@ async def run_automated_trading(user_id, force=False):
 3. 优先关注压力位和阻力位。
 4. 【重要】检查用户当前持仓和挂单，避免重复开仓。旧挂单如果不合适请先 CANCEL。
 5. 用户的挂单永远有设置止盈止损，不要认为无TP/SL。
-6. 参考用户的交互记录指令。如果用户指令中有错误，请忽略，不要试图解决错误。
+6. 参考用户的交互记录指令。如果用户指令中有错误，请忽略，不要试图解决错误。特别注意最后一条用户消息，如果没有ai回复，则最好回应一下。
 
 【输出格式】
 {json.dumps(schema, indent=4, ensure_ascii=False)}
@@ -506,7 +519,7 @@ async def run_automated_trading(user_id, force=False):
         return False
     finally:
         GlobalState.set_analyzing(user_id, False)
-        await ws_manager.broadcast_status(user_id, False)
+        await ws_manager.broadcast_status(user_id)
 
 
 # --- 调度器 ---
@@ -647,9 +660,9 @@ async def config_page(request: Request, user_id=Depends(login_required)):
 
 @app.get("/logs_view", response_class=HTMLResponse)
 async def logs_page(request: Request, user_id=Depends(login_required)):
+    # 限制改为 200
     logs = db.get_recent_logs(user_id, 200)
     log_text = "\n".join([f"[{l[0]}] [{l[1]}] {l[2]}" for l in logs]) + "\n"
-    # 获取 Chat 配置
     trigger_immediate = db.get_config(user_id, "chat_trigger_immediate") == "true"
     return templates.TemplateResponse("logs.html", {
         "request": request,
@@ -681,7 +694,7 @@ async def trigger_now(user_id=Depends(login_required)):
     return {"status": "ok"}
 
 
-# --- 新增：用户发送日志/聊天接口 ---
+# --- 新增：消息与日志接口 ---
 
 @app.post("/api/send_user_message")
 async def send_user_message(data: dict, user_id=Depends(login_required)):
@@ -691,24 +704,55 @@ async def send_user_message(data: dict, user_id=Depends(login_required)):
     return {"status": "ok"}
 
 
+@app.post("/api/delete_logs")
+async def delete_logs_endpoint(data: dict, user_id=Depends(login_required)):
+    mode = data.get("mode", "all")  # 'all' or 'useless'
+    try:
+        db.delete_logs(user_id, mode)
+        # 记录一条新日志说明操作
+        if mode == "all":
+            db.add_log(user_id, "SYSTEM", "已清空所有日志")
+        else:
+            db.add_log(user_id, "SYSTEM", "已清理无用日志")
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
+
+
+# 新增：获取最新日志的接口 (用于重连后刷新)
+@app.get("/api/get_logs")
+async def get_recent_logs_endpoint(user_id=Depends(login_required)):
+    logs = db.get_recent_logs(user_id, 200)
+    log_text = "\n".join([f"[{l[0]}] [{l[1]}] {l[2]}" for l in logs]) + "\n"
+    return {"status": "ok", "data": log_text}
+
+
 @app.post("/api/trigger_chat")
 async def trigger_chat(user_id=Depends(login_required)):
-    # 修改点：请求开始前立即写入日志，给前端反馈
+    # 状态锁定：如果正在聊天中，拒绝请求
+    if GlobalState.is_chatting(user_id):
+        return {"status": "error", "msg": "Chat AI is busy"}
+
+    GlobalState.set_chatting(user_id, True)
+    await ws_manager.broadcast_status(user_id)
+
     db.add_log(user_id, "SYSTEM", "正在请求 Chat AI...")
 
-    # 聊天 AI 调用
     async def _chat_task():
         try:
             symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
             user_prompt, images, _, _ = await build_ai_context(user_id, symbol)
 
-            sys_prompt = "你是一个加密货币交易助手。请根据提供的市场数据、账户状态和近期日志回答用户。保持简洁，客观，不要使用Emoji，不要输出JSON格式，不要用Markdown格式，尽量不换行，直接以纯文本回答。"
+            sys_prompt = "你是一个加密货币交易助手。请根据提供的市场数据、账户状态和近期日志回答用户，如果用户的最后一条消息没有ai回应，优先回应这个消息。保持简洁，客观，不要使用Emoji，不要输出JSON格式，不要用Markdown格式，尽量不换行，直接以纯文本回答。"
 
             ai = GeminiClient(user_id)
             response = await asyncio.to_thread(ai.get_chat_response, sys_prompt, user_prompt, images)
             db.add_log(user_id, "CHAT_AI", response)
         except Exception as e:
             db.add_log(user_id, "CHAT_ERR", str(e))
+        finally:
+            GlobalState.set_chatting(user_id, False)
+            await ws_manager.broadcast_status(user_id)
 
     asyncio.create_task(_chat_task())
     return {"status": "ok"}
@@ -790,7 +834,8 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     await ws_manager.connect(websocket, user_id)
-    await ws_manager.broadcast_status(user_id, GlobalState.is_analyzing(user_id))
+    # 连接时发送当前所有状态
+    await ws_manager.broadcast_status(user_id)
     try:
         while True:
             data = await websocket.receive_text()

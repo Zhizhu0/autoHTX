@@ -122,7 +122,6 @@ class StorageManager:
     def register_user(self, username, password, register_code_str):
         f = self.get_fernet()
 
-        # 1. 解密注册码
         try:
             decrypted_data = f.decrypt(register_code_str.encode()).decode()
             data = json.loads(decrypted_data)
@@ -136,20 +135,16 @@ class StorageManager:
         c = conn.cursor()
 
         try:
-            # 2. 检查UUID是否已使用
             c.execute("SELECT uuid FROM used_uuids WHERE uuid=?", (reg_uuid,))
             if c.fetchone():
                 raise Exception("注册码已被使用")
 
-            # 3. 检查用户名
             c.execute("SELECT id FROM users WHERE username=?", (username,))
             if c.fetchone():
                 raise Exception("用户名已存在")
 
-            # 4. 加密密码 (Fernet加密结果每次不同，需解密对比)
             pwd_enc = f.encrypt(password.encode()).decode()
 
-            # 5. 写入
             c.execute("INSERT INTO users (username, password_enc) VALUES (?, ?)", (username, pwd_enc))
             c.execute("INSERT INTO used_uuids (uuid, used_at) VALUES (?, ?)",
                       (reg_uuid, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
@@ -174,7 +169,6 @@ class StorageManager:
         user_id, pwd_enc = row
         f = self.get_fernet()
         try:
-            # 解密数据库中的密码进行比对
             decrypted_pwd = f.decrypt(pwd_enc.encode()).decode()
             if decrypted_pwd == password:
                 return user_id
@@ -183,10 +177,8 @@ class StorageManager:
         return None
 
     def get_all_active_users(self):
-        """获取所有开启了自动交易的用户ID"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        # 找出 config 中 is_active = true 的 user_id
         c.execute("SELECT DISTINCT user_id FROM config WHERE key='is_active' AND value='true'")
         rows = c.fetchall()
         conn.close()
@@ -214,12 +206,10 @@ class StorageManager:
         c = conn.cursor()
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. 插入新日志
         c.execute("INSERT INTO logs (user_id, timestamp, level, message) VALUES (?, ?, ?, ?)",
                   (user_id, timestamp, level, message))
 
-        # 2. 自动清理：只保留该用户最近的100条日志
-        # 逻辑：删除该用户 id 不在 (前100个倒序id) 之列的所有记录
+        # 自动清理：保留最近 200 条 (原为 100)
         c.execute("""
                   DELETE
                   FROM logs
@@ -228,21 +218,20 @@ class StorageManager:
                                    FROM logs
                                    WHERE user_id = ?
                                    ORDER BY id DESC
-                      LIMIT 100
+                      LIMIT 200
                       )
                   """, (user_id, user_id))
 
         conn.commit()
         conn.close()
 
-        # 触发回调广播到 WebSocket
         if self.log_callback:
             try:
                 self.log_callback(user_id, timestamp, level, message)
             except:
                 pass
 
-    def get_recent_logs(self, user_id, limit=100):
+    def get_recent_logs(self, user_id, limit=200): # 默认改为 200
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("SELECT timestamp, level, message FROM logs WHERE user_id=? ORDER BY id DESC LIMIT ?",
@@ -252,10 +241,8 @@ class StorageManager:
         return list(reversed(rows))
 
     def get_context_logs(self, user_id, limit=10):
-        """获取用于AI上下文的日志（SUMMARY, USER_INPUT, CHAT_AI）"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        # 修改点：增加了 CHAT_AI，limit 改为 10
         c.execute("""
             SELECT level, message FROM logs 
             WHERE user_id=? AND level IN ('SUMMARY', 'USER_INPUT', 'CHAT_AI') 
@@ -263,9 +250,30 @@ class StorageManager:
         """, (user_id, limit))
         rows = c.fetchall()
         conn.close()
-        # 保持时间顺序：最旧的在前
         return list(reversed(rows))
 
+    def delete_logs(self, user_id, mode="all"):
+        """
+        mode='all': 删除所有日志
+        mode='useless': 只删除非核心日志 (保留 SUMMARY, USER_INPUT, CHAT_AI)
+        """
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        try:
+            if mode == "all":
+                c.execute("DELETE FROM logs WHERE user_id=?", (user_id,))
+            elif mode == "useless":
+                # 保留这三个类型的日志，删除其他的
+                c.execute("""
+                    DELETE FROM logs 
+                    WHERE user_id=? 
+                    AND level NOT IN ('SUMMARY', 'USER_INPUT', 'CHAT_AI')
+                """, (user_id,))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
 
-# 单例
 db = StorageManager()

@@ -50,21 +50,27 @@
             gap: 10px;
         }
 
+        .header-left { display: flex; align-items: center; gap: 15px; }
+
         a { color: var(--link-color); text-decoration: none; font-size: 16px; font-weight: bold; }
 
-        .controls { display: flex; align-items: center; gap: 10px; }
+        .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-        .btn-run {
-            background: #d32f2f;
-            color: white;
+        /* 通用按钮样式 */
+        button {
             border: none;
-            padding: 8px 16px;
+            padding: 8px 12px;
             border-radius: 4px;
             cursor: pointer;
+            font-size: 13px;
             font-weight: bold;
-            font-size: 14px;
+            transition: opacity 0.3s;
         }
-        .btn-run:disabled { background: #555; cursor: not-allowed; opacity: 0.7; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .btn-run { background: #d32f2f; color: white; }
+        .btn-del { background: #c62828; color: white; font-size: 12px; padding: 6px 10px; }
+        .btn-clean { background: #f57f17; color: white; font-size: 12px; padding: 6px 10px; }
 
         .status-dot { height: 10px; width: 10px; background-color: #bbb; border-radius: 50%; display: inline-block; margin-right: 5px; }
         .status-active { background-color: #00e676; }
@@ -84,24 +90,15 @@
             color-scheme: dark;
         }
 
-        @media (prefers-color-scheme: dark) and (max-width: 768px) {
-            textarea {
-                background-color: #1e1e1e !important;
-                color: #00ff00 !important;
-                border-color: #444 !important;
-            }
-        }
-
         .chat-bar {
             margin-top: 10px;
             display: flex;
             gap: 10px;
-            flex-wrap: wrap;
+            align-items: stretch;
         }
 
         .chat-input {
             flex: 1;
-            min-width: 200px;
             padding: 10px;
             background: var(--input-bg);
             color: var(--text-main);
@@ -110,30 +107,34 @@
             font-size: 14px;
         }
 
+        .chat-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
         .btn-chat {
             background: var(--link-color);
             color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
             min-width: 80px;
-            transition: all 0.3s;
-        }
-        .btn-chat:disabled {
-            opacity: 0.7;
-            cursor: not-allowed;
-            background: #666;
+            padding: 0 16px;
         }
 
         .btn-chat-sec {
             background: var(--btn-bg);
             color: var(--text-main);
             border: 1px solid var(--textarea-border);
+        }
+
+        /* 移动端适配：输入框在上，按钮在下并排 */
+        @media (max-width: 600px) {
+            .chat-bar { flex-direction: column; }
+            .chat-buttons { display: flex; width: 100%; }
+            .chat-buttons button { flex: 1; padding: 12px 0; }
+            .header { flex-direction: column; align-items: flex-start; }
+            .controls { width: 100%; justify-content: space-between; }
         }
 
         /* Loading Spinner */
@@ -147,20 +148,23 @@
             animation: spin 0.8s linear infinite;
             margin-right: 8px;
         }
-
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
         .btn-loading .spinner { display: block; }
     </style>
 </head>
 <body>
     <div class="header">
-        <a href="/">← 返回</a>
-        <div class="controls">
+        <div class="header-left">
+            <a href="/">← 返回</a>
             <div>
                 <span id="statusIndicator" class="status-dot"></span>
-                <span id="statusText" style="margin-right: 5px; font-size: 12px;">连接中...</span>
+                <span id="statusText" style="font-size: 12px;">连接中...</span>
             </div>
+        </div>
+        <div class="controls">
+            <!-- 新增删除按钮 -->
+            <button class="btn-clean" onclick="deleteLogs('useless')" title="只保留对话和摘要">清理无用日志</button>
+            <button class="btn-del" onclick="deleteLogs('all')">删除所有</button>
             <button id="runBtn" class="btn-run" onclick="triggerRun()">立即运行 AI</button>
         </div>
     </div>
@@ -170,15 +174,18 @@
     <div class="chat-bar">
         <input type="text" id="chatInput" class="chat-input" placeholder="输入消息 (记录到日志/与AI对话)..." onkeypress="handleKeyPress(event)">
 
-        <button id="sendBtn" class="btn-chat" onclick="sendMessage()">
-            <span class="spinner"></span>
-            <span class="btn-text">发送消息</span>
-        </button>
+        <!-- 使用容器包裹两个按钮，确保在移动端在一起 -->
+        <div class="chat-buttons">
+            <button id="sendBtn" class="btn-chat" onclick="sendMessage()">
+                <span class="spinner"></span>
+                <span class="btn-text">发送</span>
+            </button>
 
-        <button id="triggerChatBtn" class="btn-chat btn-chat-sec" style="display:none;" onclick="triggerChatAI()">
-            <span class="spinner" style="border-color: var(--text-main) transparent var(--text-main) var(--text-main);"></span>
-            <span class="btn-text">请求聊天AI</span>
-        </button>
+            <button id="triggerChatBtn" class="btn-chat btn-chat-sec" style="display:none;" onclick="triggerChatAI()">
+                <span class="spinner" style="border-color: var(--text-main) transparent var(--text-main) var(--text-main);"></span>
+                <span class="btn-text">请求AI</span>
+            </button>
+        </div>
     </div>
 
     <script>
@@ -194,12 +201,13 @@
         const immediateTrigger = {{ 'true' if trigger_immediate else 'false' }};
 
         if (!immediateTrigger) {
-            triggerChatBtn.style.display = 'flex'; // 使用 flex 配合 spinner 居中
+            triggerChatBtn.style.display = 'flex';
         }
 
         area.scrollTop = area.scrollHeight;
 
-        function updateState(isAnalyzing) {
+        // --- 状态更新逻辑 ---
+        function updateState(isAnalyzing, isChatting) {
             if (isAnalyzing) {
                 runBtn.disabled = true;
                 runBtn.innerText = "运行中...";
@@ -211,10 +219,18 @@
                 statusText.innerText = "空闲";
                 statusIndicator.className = "status-dot";
             }
-        }
 
-        // --- 按钮 Loading 状态控制 ---
-        let chatWaitTimer = null;
+            if (isChatting) {
+                if (immediateTrigger) {
+                    setLoading(sendBtn, true, "请求中...");
+                } else {
+                    setLoading(triggerChatBtn, true, "请求中...");
+                }
+            } else {
+                setLoading(sendBtn, false, "发送");
+                setLoading(triggerChatBtn, false, "请求AI");
+            }
+        }
 
         function setLoading(btn, isLoading, text) {
             const spinner = btn.querySelector('.spinner');
@@ -236,17 +252,29 @@
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs`;
         let pingInterval;
+        let isReconnect = false; // 标记是否为断线重连
 
         function connectWs() {
             ws = new WebSocket(wsUrl);
 
             ws.onopen = function() {
                 console.log("WebSocket 已连接");
-                if (statusText.innerText !== "分析中") {
-                    statusText.innerText = "空闲";
-                    statusIndicator.className = "status-dot";
-                    runBtn.disabled = false;
+
+                // 如果是断线重连，调用 API 刷新日志
+                if (isReconnect) {
+                    console.log("检测到重连，正在刷新日志...");
+                    fetch('/api/get_logs')
+                        .then(r => r.json())
+                        .then(data => {
+                            if(data.status === 'ok') {
+                                area.value = data.data;
+                                area.scrollTop = area.scrollHeight;
+                            }
+                        })
+                        .catch(err => console.error("刷新日志失败:", err));
                 }
+                isReconnect = false;
+
                 pingInterval = setInterval(() => {
                     if (ws.readyState === WebSocket.OPEN) ws.send("ping");
                 }, 30000);
@@ -257,22 +285,15 @@
                 if (msg.type === 'log') {
                     area.value += msg.data + "\n";
                     area.scrollTop = area.scrollHeight;
-
-                    // 监听日志内容，自动取消 Loading 状态
-                    // 日志格式: [时间] [LEVEL] Message
-                    // 只要看到 [CHAT_AI] 或 [CHAT_ERR] 说明 AI 回复了
-                    if (msg.data.includes('] [CHAT_AI]') || msg.data.includes('] [CHAT_ERR]')) {
-                        stopChatLoading();
-                    }
-
                 } else if (msg.type === 'status') {
-                    updateState(msg.is_analyzing);
+                    updateState(msg.is_analyzing, msg.is_chatting);
                 }
             };
 
             ws.onclose = function() {
                 console.log("WS断开，重连中...");
                 if (pingInterval) clearInterval(pingInterval);
+                isReconnect = true; // 标记断开
                 statusText.innerText = "断开";
                 statusIndicator.className = "status-dot status-error";
                 runBtn.disabled = true;
@@ -286,67 +307,61 @@
             if (e.key === 'Enter') sendMessage();
         }
 
-        function stopChatLoading() {
-            // 清除超时计时器
-            if (chatWaitTimer) clearTimeout(chatWaitTimer);
-            chatWaitTimer = null;
-
-            // 恢复按钮状态
-            setLoading(sendBtn, false, "发送消息");
-            setLoading(triggerChatBtn, false, "请求聊天AI");
-        }
-
         function sendMessage() {
             const msg = chatInput.value.trim();
             if (!msg) return;
 
-            // 1. 发送消息到日志
             fetch('/api/send_user_message', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({message: msg})
             }).then(() => {
                 chatInput.value = '';
-
-                // 2. 如果开启了立即触发，则让发送按钮转圈
                 if (immediateTrigger) {
-                    setLoading(sendBtn, true, "请求中...");
-                    triggerChatAI(true); // pass true to indicate it's from send button
+                    triggerChatAI();
                 }
             });
         }
 
-        function triggerChatAI(fromSendBtn = false) {
-            // 如果不是来自发送按钮的自动触发，则是手动点击，让手动按钮转圈
-            if (!fromSendBtn) {
-                setLoading(triggerChatBtn, true, "请求中...");
-            }
-
-            // 设置一个最长超时，防止 websocket 没收到消息按钮一直卡死 (例如60秒)
-            if (chatWaitTimer) clearTimeout(chatWaitTimer);
-            chatWaitTimer = setTimeout(() => {
-                stopChatLoading();
-                alert("请求超时或未收到AI响应，请检查日志。");
-            }, 180000);
-
+        function triggerChatAI() {
             fetch('/api/trigger_chat', { method: 'POST' })
-                .catch(err => {
-                    stopChatLoading();
-                    alert("请求失败");
-                });
+                .then(r => r.json())
+                .then(data => {
+                    if(data.status === 'error') {
+                        alert("错误: " + data.msg);
+                    }
+                })
+                .catch(err => alert("请求失败"));
         }
 
         function triggerRun() {
             if (confirm("确认立即执行交易分析？")) {
-                runBtn.disabled = true;
-                fetch('/api/trigger_now', { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.status === 'error') {
-                            alert(data.msg);
-                            runBtn.disabled = false;
-                        }
-                    });
+                fetch('/api/trigger_now', { method: 'POST' });
+            }
+        }
+
+        function deleteLogs(mode) {
+            let confirmed = false;
+            if (mode === 'all') {
+                confirmed = confirm("确定要删除该用户下的所有日志吗？此操作不可恢复。");
+            } else {
+                confirmed = true;
+            }
+
+            if (confirmed) {
+                fetch('/api/delete_logs', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mode: mode})
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        location.reload();
+                    } else {
+                        alert("删除失败: " + data.msg);
+                    }
+                });
             }
         }
     </script>
