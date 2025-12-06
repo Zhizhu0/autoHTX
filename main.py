@@ -524,6 +524,8 @@ async def run_automated_trading(user_id, force=False):
 
 # --- 调度器 ---
 
+retry_tracker = {}
+
 async def scheduler_loop():
     print(">>> 多用户交易调度器已启动")
     while True:
@@ -543,7 +545,12 @@ async def scheduler_loop():
                 last_slot = int(last_slot_str) if last_slot_str else -1
 
                 if current_slot != last_slot:
-                    db.add_log(user_id, "SCHEDULER", f"触发定时任务 ({interval}m)")
+                    # 这里不再只是简单打印，而是进入带有重试计数的执行逻辑
+                    # 只有当第一次尝试时才记录日志，避免刷屏
+                    tracker = retry_tracker.get(user_id, {})
+                    if tracker.get("slot") != current_slot:
+                        db.add_log(user_id, "SCHEDULER", f"触发定时任务 ({interval}m)")
+
                     asyncio.create_task(run_and_update(user_id, current_slot, interval))
 
         except Exception as e:
@@ -552,10 +559,57 @@ async def scheduler_loop():
 
 
 async def run_and_update(user_id, slot, interval):
+    # 1. 初始化或更新计数器
+    if user_id not in retry_tracker or retry_tracker[user_id]["slot"] != slot:
+        retry_tracker[user_id] = {"slot": slot, "count": 0}
+
+    retry_tracker[user_id]["count"] += 1
+    current_attempt = retry_tracker[user_id]["count"]
+
+    # 2. 执行任务
     success = await run_automated_trading(user_id, force=False)
-    retry = db.get_config(user_id, "ensure_valid_req") == "true"
-    if success or not retry:
+
+    # 3. 获取重试配置
+    should_retry = db.get_config(user_id, "ensure_valid_req") == "true"
+    max_retries_str = db.get_config(user_id, "max_retry_count")
+    # 默认为 -1 (无限重试)，保持向后兼容
+    try:
+        max_retries = int(max_retries_str) if max_retries_str else -1
+    except:
+        max_retries = -1
+
+    # 4. 判断是否结束本次时间槽的任务
+    finish_task = False
+
+    if success:
+        finish_task = True
+    elif not should_retry:
+        # 失败了，但没开启重试 -> 结束
+        finish_task = True
+    else:
+        # 失败了，且开启了重试 -> 检查次数
+        if max_retries < 0:
+            # 负数：无限重试，不做操作，等待下一次循环
+            pass
+        elif max_retries == 0:
+            # 0次重试：等同于不重试 -> 结束
+            finish_task = True
+        else:
+            # 正数：检查是否超过 (当前尝试次数 > 最大重试次数)
+            # 例如 max=3。第1次失败(1>3 False)，第2次(2>3 False)，第3次(3>3 False)，第4次(4>3 True) -> 结束
+            # 这里的 max_retries 指的是“重试”次数。总尝试次数 = 1 + max_retries
+            if current_attempt > max_retries:
+                db.add_log(user_id, "SYSTEM", f"重试次数耗尽 ({max_retries}次)，跳过本次任务")
+                finish_task = True
+            else:
+                # 还可以重试
+                pass
+
+    if finish_task:
         db.set_config(user_id, "last_run_slot", str(slot))
+        # 清理内存
+        if user_id in retry_tracker:
+            del retry_tracker[user_id]
 
 
 # --- 系统更新 API ---
@@ -769,10 +823,11 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
         "getEnsureValid": "ensure_valid_req", "getEmptyAsNone": "empty_as_none",
         "getVol0": "vol_level_0", "getVol1": "vol_level_1", "getVol2": "vol_level_2", "getVol3": "vol_level_3",
         "getAggressionLevel": "aggression_level",
-        # 新增配置
         "getAiApiUrl": "ai_api_url", "getAiModel": "ai_model",
         "getChatApiUrl": "chat_api_url", "getChatModel": "chat_model",
-        "getUseSameAi": "use_same_ai", "getChatTrigger": "chat_trigger_immediate"
+        "getUseSameAi": "use_same_ai", "getChatTrigger": "chat_trigger_immediate",
+        # 新增
+        "getRetryCount": "max_retry_count"
     }
     db_key = CONFIG_MAP.get(key_name)
     if not db_key: return {"value": ""}
@@ -782,7 +837,8 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
     defaults = {
         "getSymbol": "ETH-USDT", "getLeverage": "5", "getInterval": "60", "getAggressionLevel": "2",
         "getAiApiUrl": "https://api.gemai.cc/v1/chat/completions",
-        "getAiModel": "[满血A]gemini-3-pro-preview"
+        "getAiModel": "[满血A]gemini-3-pro-preview",
+        "getRetryCount": "-1" # 默认无限
     }
     if val == "" and key_name in defaults: val = defaults[key_name]
     return {"value": val}
@@ -797,10 +853,11 @@ async def set_key(data: dict, user_id=Depends(login_required)):
         "ensureValidReq": "ensure_valid_req", "emptyAsNone": "empty_as_none",
         "volLevel0": "vol_level_0", "volLevel1": "vol_level_1", "volLevel2": "vol_level_2", "volLevel3": "vol_level_3",
         "aggressionLevel": "aggression_level",
-        # 新增
         "aiApiUrl": "ai_api_url", "aiModel": "ai_model",
         "chatApiUrl": "chat_api_url", "chatModel": "chat_model",
-        "useSameAi": "use_same_ai", "chatTrigger": "chat_trigger_immediate"
+        "useSameAi": "use_same_ai", "chatTrigger": "chat_trigger_immediate",
+        # 新增
+        "retryCount": "max_retry_count"
     }
     key_name = data.get("key")
     if key_name in FRONTEND_TO_DB_MAP:
@@ -808,7 +865,6 @@ async def set_key(data: dict, user_id=Depends(login_required)):
         new_val = str(data.get("value"))
         old_val = db.get_config(user_id, db_key)
 
-        # 记录变更日志 (密码类除外)
         if "Key" not in key_name and old_val != new_val:
             db.add_log(user_id, "CONFIG", f"修改配置 {key_name}: {old_val} -> {new_val}")
 
