@@ -54,7 +54,11 @@
             margin-bottom: 25px;
         }
 
-        h2 { margin: 0; font-size: 24px; }
+        h2 {
+            margin: 0;
+            font-size: 24px;
+        }
+
         .back-link {
             text-decoration: none;
             color: var(--primary);
@@ -86,7 +90,17 @@
             color: var(--primary);
         }
 
-        .form-group { margin-bottom: 18px; }
+        .section-title {
+            color: var(--primary);
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
 
         label {
             display: block;
@@ -106,8 +120,17 @@
             font-size: 14px;
             transition: border-color 0.2s;
         }
-        input:focus { outline: none; border-color: var(--primary); }
-        input:disabled { opacity: 0.6; cursor: not-allowed; background: rgba(0,0,0,0.05); }
+
+        input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        input:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: rgba(0, 0, 0, 0.05);
+        }
 
         .desc {
             font-size: 12px;
@@ -122,20 +145,80 @@
             align-items: center;
             justify-content: space-between;
         }
-        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
-        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
-        input:checked + .slider { background-color: var(--success); }
-        input:checked + .slider:before { transform: translateX(20px); }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--success);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
 
         /* Range Slider */
-        input[type=range] { width: 100%; margin: 10px 0; background: transparent; -webkit-appearance: none; }
-        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 18px; width: 18px; border-radius: 50%; background: var(--primary); cursor: pointer; margin-top: -7px; }
-        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: var(--border); border-radius: 2px; }
+        input[type=range] {
+            width: 100%;
+            margin: 10px 0;
+            background: transparent;
+            -webkit-appearance: none;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            margin-top: -7px;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: var(--border);
+            border-radius: 2px;
+        }
 
         .level-box {
-            background: rgba(0,0,0,0.03);
+            background: rgba(0, 0, 0, 0.03);
             padding: 10px;
             border-radius: 6px;
             font-size: 13px;
@@ -144,8 +227,17 @@
         }
 
         /* Vol Grid */
-        .vol-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-        .vol-item label { font-size: 11px; margin-bottom: 2px; color: var(--text-sub); }
+        .vol-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        .vol-item label {
+            font-size: 11px;
+            margin-bottom: 2px;
+            color: var(--text-sub);
+        }
 
         /* Toast */
         #toast {
@@ -164,297 +256,459 @@
             opacity: 0;
             transition: opacity 0.3s, bottom 0.3s;
         }
-        #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
+
+        #toast.show {
+            visibility: visible;
+            opacity: 1;
+            bottom: 50px;
+        }
 
         @media (max-width: 600px) {
-            .config-grid { grid-template-columns: 1fr; }
-            .vol-grid { grid-template-columns: repeat(2, 1fr); }
-            .container { padding: 0 5px; }
+            .config-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .vol-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .container {
+                padding: 0 5px;
+            }
+        }
+
+        .custom-strategy-wrapper {
+            overflow: hidden;
+            max-height: 0;
+            opacity: 0;
+            transition: max-height 0.4s ease-in-out, opacity 0.4s ease-in-out;
+            margin-top: 0;
+        }
+
+        .custom-strategy-wrapper.open {
+            max-height: 500px; /* 足够大以容纳 textarea */
+            opacity: 1;
+            margin-top: 15px;
+        }
+
+        .custom-textarea {
+            width: 100%;
+            height: 150px;
+            font-family: monospace;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid var(--primary); /* 高亮边框表示正在自定义 */
+            border-radius: 6px;
+            background: var(--input-bg);
+            color: var(--text-main);
+            font-size: 13px;
+            line-height: 1.4;
+            resize: vertical;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="page-header">
-            <h2>系统参数设置</h2>
-            <a href="/" class="back-link">← 返回主页</a>
-        </div>
-
-        <div class="config-grid">
-
-            <!-- 1. 核心系统控制 -->
-            <div class="card">
-                <div class="card-header">核心系统控制</div>
-
-                <div class="form-group switch-row">
-                    <div>
-                        <label style="margin:0">启用自动交易 (Master Switch)</label>
-                        <div class="desc">系统的全局总开关</div>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="systemStatus" onchange="saveCheck('systemStatus', this.checked)">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <label>交易间隔 (分钟)</label>
-                    <input type="number" id="tradeInterval" min="1" onchange="saveVal('tradeInterval', this.value)">
-                    <div class="desc">每次 AI 分析之间的时间间隔</div>
-                </div>
-
-                <div class="form-group switch-row">
-                    <div>
-                        <label style="margin:0">出错立即重试</label>
-                        <div class="desc">如果 API 报错或 AI 格式错误，是否立即重新尝试</div>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="ensureValidReq" onchange="toggleRetryInput(this.checked); saveCheck('ensureValidReq', this.checked)">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-
-                <div class="form-group" id="retryCountGroup" style="display:none; margin-left: 20px; border-left: 3px solid var(--border); padding-left: 10px;">
-                    <label>最大重试次数</label>
-                    <input type="number" id="retryCount" placeholder="-1 为无限重试" onchange="saveVal('retryCount', this.value)">
-                    <div class="desc">
-                        设置为 <b>-1</b> 表示无限重试（直到下一个时间段）；<br>
-                        设置为 <b>0</b> 表示不重试（等同于关闭开关）；<br>
-                        设置为 <b>正数</b> (如 3) 表示最多尝试 3 次。
-                    </div>
-                </div>
-
-                <div class="form-group switch-row">
-                    <div>
-                        <label style="margin:0">空结果视为无操作</label>
-                        <div class="desc">AI 返回空字符串时不报错，而是静默跳过</div>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="emptyAsNone" onchange="saveCheck('emptyAsNone', this.checked)">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- 2. 交易策略配置 -->
-            <div class="card">
-                <div class="card-header">交易策略配置</div>
-
-                <div class="form-group">
-                    <label>交易对 (Symbol)</label>
-                    <input type="text" id="tradeSymbol" placeholder="ETH-USDT" onchange="saveVal('tradeSymbol', this.value)">
-                </div>
-
-                <div class="form-group">
-                    <label>杠杆倍数</label>
-                    <input type="number" id="tradeLeverage" placeholder="5" onchange="saveVal('tradeLeverage', this.value)">
-                </div>
-
-                <div class="form-group switch-row">
-                    <div>
-                        <label style="margin:0">持仓时跳过</label>
-                        <div class="desc">如果有该币种持仓，则不进行 AI 分析</div>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="skipWhenHolding" onchange="saveCheck('skipWhenHolding', this.checked)">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <div style="display:flex; justify-content:space-between;">
-                        <label>策略激进程度</label>
-                        <span id="levelValue" style="color:var(--primary); font-weight:bold;">2</span>
-                    </div>
-                    <input type="range" id="aggressionLevel" min="0" max="4" step="1" oninput="updateLevelDesc(this.value)" onchange="saveVal('aggressionLevel', this.value)">
-                    <div id="levelDesc" class="level-box">加载中...</div>
-                </div>
-
-                <div class="form-group">
-                    <label>开仓数量 (张/Cont)</label>
-                    <div class="vol-grid">
-                        <div class="vol-item">
-                            <label>Lv.0 (极轻)</label>
-                            <input type="number" id="volLevel0" onchange="saveVal('volLevel0', this.value)">
-                        </div>
-                        <div class="vol-item">
-                            <label>Lv.1 (轻仓)</label>
-                            <input type="number" id="volLevel1" onchange="saveVal('volLevel1', this.value)">
-                        </div>
-                        <div class="vol-item">
-                            <label>Lv.2 (中仓)</label>
-                            <input type="number" id="volLevel2" onchange="saveVal('volLevel2', this.value)">
-                        </div>
-                        <div class="vol-item">
-                            <label>Lv.3 (重仓)</label>
-                            <input type="number" id="volLevel3" onchange="saveVal('volLevel3', this.value)">
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 3. AI 模型设置 -->
-            <div class="card">
-                <div class="card-header">AI 模型设置</div>
-
-                <div style="margin-bottom: 20px;">
-                    <label style="color: var(--primary);">分析 AI (Analysis)</label>
-                    <div class="form-group">
-                        <input type="text" id="aiApiUrl" placeholder="API URL" onchange="saveVal('aiApiUrl', this.value)">
-                        <div class="desc">Base URL (e.g., https://api.openai.com/v1/chat/completions)</div>
-                    </div>
-                    <div class="form-group">
-                        <input type="text" id="aiModel" placeholder="Model Name" onchange="saveVal('aiModel', this.value)">
-                    </div>
-                </div>
-
-                <div style="border-top: 1px solid var(--border); padding-top: 15px;">
-                    <div class="form-group switch-row">
-                        <label style="color: var(--primary); margin:0;">聊天 AI (Chat)</label>
-                        <label class="switch">
-                            <input type="checkbox" id="useSameAi" onchange="toggleChatConfig(this.checked); saveCheck('useSameAi', this.checked)">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="desc" style="margin-bottom:10px;">开启开关以复用上方分析 AI 的配置</div>
-
-                    <div id="chatConfigArea">
-                        <div class="form-group">
-                            <input type="text" id="chatApiUrl" placeholder="Chat API URL" onchange="saveVal('chatApiUrl', this.value)">
-                        </div>
-                        <div class="form-group">
-                            <input type="text" id="chatModel" placeholder="Chat Model Name" onchange="saveVal('chatModel', this.value)">
-                        </div>
-                    </div>
-
-                    <div class="form-group switch-row" style="margin-top:15px;">
-                        <div>
-                            <label style="margin:0">手动发送时立即触发 AI</label>
-                            <div class="desc">在日志页发送消息后自动请求回复</div>
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" id="chatTrigger" onchange="saveCheck('chatTrigger', this.checked)">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 4. 敏感密钥 -->
-            <div class="card">
-                <div class="card-header">API 密钥 (Sensitive)</div>
-                <div class="form-group">
-                    <label>Gemini / LLM Key</label>
-                    <input type="password" id="geminiKey" onchange="saveVal('geminiKey', this.value)">
-                </div>
-                <div class="form-group">
-                    <label>火币 Base URL</label>
-                    <input type="text" id="huobiUrl" placeholder="https://api.hbdm.com" onchange="saveVal('huobiUrl', this.value)">
-                </div>
-                <div class="form-group">
-                    <label>Huobi Access Key</label>
-                    <input type="password" id="accessKey" onchange="saveVal('accessKey', this.value)">
-                </div>
-                <div class="form-group">
-                    <label>Huobi Secret Key</label>
-                    <input type="password" id="secretKey" onchange="saveVal('secretKey', this.value)">
-                </div>
-            </div>
-
-        </div>
+<div class="container">
+    <div class="page-header">
+        <h2>系统参数设置</h2>
+        <a href="/" class="back-link">← 返回主页</a>
     </div>
 
-    <div id="toast">已保存</div>
+    <div class="config-grid">
 
-    <script>
-        const map = {
-            'geminiKey': 'getAIKey', 'accessKey': 'getAccessKey', 'secretKey': 'getSecretKey',
-            'systemStatus': 'getSystemStatus', 'skipWhenHolding': 'getSkipHolding',
-            'ensureValidReq': 'getEnsureValid', 'retryCount': 'getRetryCount', 'emptyAsNone': 'getEmptyAsNone',
-            'tradeInterval': 'getInterval', 'tradeSymbol': 'getSymbol', 'tradeLeverage': 'getLeverage',
-            'huobiUrl': 'getHuobiUrl',
-            'aggressionLevel': 'getAggressionLevel',
-            'volLevel0': 'getVol0', 'volLevel1': 'getVol1', 'volLevel2': 'getVol2', 'volLevel3': 'getVol3',
-            'aiApiUrl': 'getAiApiUrl', 'aiModel': 'getAiModel',
-            'chatApiUrl': 'getChatApiUrl', 'chatModel': 'getChatModel',
-            'useSameAi': 'getUseSameAi', 'chatTrigger': 'getChatTrigger'
-        };
+        <!-- 1. 核心系统控制 -->
+        <div class="card">
+            <div class="card-header">核心系统控制</div>
 
-        const levelDescriptions = [
-            "【Lv.0 保守】极少操作。仅关注日线级别大趋势，止损极宽，分批建仓。",
-            "【Lv.1 稳健】宁缺毋滥。关注1-4小时趋势，只做顺势回调的限价单。",
-            "【Lv.2 平衡】高抛低吸。关注震荡区间，可能持有双向挂单 (网格思维)。",
-            "【Lv.3 激进】追求波段。关注15m-1h图，止损较窄，偶尔市价追单。",
-            "【Lv.4 极激进】剥头皮。关注分钟级动能，频繁市价进出，止损极严。"
-        ];
+            <div class="form-group switch-row">
+                <div>
+                    <label style="margin:0">启用自动交易 (Master Switch)</label>
+                    <div class="desc">系统的全局总开关</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="systemStatus" onchange="saveCheck('systemStatus', this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
 
-        function updateLevelDesc(val) {
-            document.getElementById('levelValue').innerText = val;
-            document.getElementById('levelDesc').innerText = levelDescriptions[val];
+            <div class="form-group">
+                <label>交易间隔 (分钟)</label>
+                <input type="number" id="tradeInterval" min="1" onchange="saveVal('tradeInterval', this.value)">
+                <div class="desc">每次 AI 分析之间的时间间隔</div>
+            </div>
+
+            <div class="form-group switch-row">
+                <div>
+                    <label style="margin:0">出错立即重试</label>
+                    <div class="desc">如果 API 报错或 AI 格式错误，是否立即重新尝试</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="ensureValidReq"
+                           onchange="toggleRetryInput(this.checked); saveCheck('ensureValidReq', this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="form-group" id="retryCountGroup"
+                 style="display:none; margin-left: 20px; border-left: 3px solid var(--border); padding-left: 10px;">
+                <label>最大重试次数</label>
+                <input type="number" id="retryCount" placeholder="-1 为无限重试"
+                       onchange="saveVal('retryCount', this.value)">
+                <div class="desc">
+                    设置为 <b>-1</b> 表示无限重试（直到下一个时间段）；<br>
+                    设置为 <b>0</b> 表示不重试（等同于关闭开关）；<br>
+                    设置为 <b>正数</b> (如 3) 表示最多尝试 3 次。
+                </div>
+            </div>
+
+            <div class="form-group switch-row">
+                <div>
+                    <label style="margin:0">空结果视为无操作</label>
+                    <div class="desc">AI 返回空字符串时不报错，而是静默跳过</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="emptyAsNone" onchange="saveCheck('emptyAsNone', this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <!-- 2. 交易策略配置 -->
+        <div class="card">
+            <div class="card-header">交易策略配置</div>
+
+            <div class="form-group">
+                <label>交易对 (Symbol)</label>
+                <input type="text" id="tradeSymbol" placeholder="ETH-USDT"
+                       onchange="saveVal('tradeSymbol', this.value)">
+            </div>
+
+            <div class="form-group">
+                <label>杠杆倍数</label>
+                <input type="number" id="tradeLeverage" placeholder="5" onchange="saveVal('tradeLeverage', this.value)">
+            </div>
+
+            <div class="form-group switch-row">
+                <div>
+                    <label style="margin:0">持仓时跳过</label>
+                    <div class="desc">如果有该币种持仓，则不进行 AI 分析</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="skipWhenHolding" onchange="saveCheck('skipWhenHolding', this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <div style="display:flex; justify-content:space-between;">
+                    <label>策略激进程度</label>
+                    <span id="levelValue" style="color:var(--primary); font-weight:bold;">2</span>
+                </div>
+                <!-- 注意：给 input 增加 oninput="handleLevelChange(this.value)" -->
+                <input type="range" id="aggressionLevel" min="0" max="4" step="1"
+                       oninput="handleLevelChange(this.value)" onchange="saveVal('aggressionLevel', this.value)">
+                <div id="levelDesc" class="level-box">加载中...</div>
+            </div>
+
+            <!-- [新增] 自定义策略开关 -->
+            <div class="form-group switch-row"
+                 style="margin-top: 15px; border-top: 1px dashed var(--border); padding-top: 15px;">
+                <div>
+                    <label style="margin:0">启用自定义策略提示词</label>
+                    <div class="desc">针对当前等级编辑专属 Prompt</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="useCustomStrategy" onchange="toggleCustomStrategy(this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div id="customStrategyBox" class="custom-strategy-wrapper">
+                <label style="margin-bottom:5px; font-size:12px; color:var(--primary);">自定义提示词</label>
+                <textarea id="customStrategyText" class="custom-textarea"
+                          onblur="saveCurrentCustomStrategy()"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>开仓数量 (张/Cont)</label>
+                <div class="vol-grid">
+                    <div class="vol-item">
+                        <label>Lv.0 (极轻)</label>
+                        <input type="number" id="volLevel0" onchange="saveVal('volLevel0', this.value)">
+                    </div>
+                    <div class="vol-item">
+                        <label>Lv.1 (轻仓)</label>
+                        <input type="number" id="volLevel1" onchange="saveVal('volLevel1', this.value)">
+                    </div>
+                    <div class="vol-item">
+                        <label>Lv.2 (中仓)</label>
+                        <input type="number" id="volLevel2" onchange="saveVal('volLevel2', this.value)">
+                    </div>
+                    <div class="vol-item">
+                        <label>Lv.3 (重仓)</label>
+                        <input type="number" id="volLevel3" onchange="saveVal('volLevel3', this.value)">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. AI 模型设置 -->
+        <div class="card">
+            <div class="card-header">AI 模型设置</div>
+
+            <div style="margin-bottom: 20px;">
+                <span class="section-title">分析 AI (Analysis)</span>
+                <div class="form-group">
+                    <input type="text" id="aiApiUrl" placeholder="API URL" onchange="saveVal('aiApiUrl', this.value)">
+                    <div class="desc">Base URL (e.g., https://api.openai.com/v1/chat/completions)</div>
+                </div>
+                <div class="form-group">
+                    <input type="text" id="aiModel" placeholder="Model Name" onchange="saveVal('aiModel', this.value)">
+                </div>
+            </div>
+
+            <div style="border-top: 1px solid var(--border); padding-top: 15px;">
+                <span class="section-title">聊天 AI (Chat)</span>
+
+                <div class="form-group switch-row">
+                    <div>
+                        <label style="margin:0">复用分析 AI 配置</label>
+                        <div class="desc">若开启，则聊天功能将直接使用上方的 API 配置</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="useSameAi"
+                               onchange="toggleChatConfig(this.checked); saveCheck('useSameAi', this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div id="chatConfigArea" style="margin-top: 10px;">
+                    <div class="form-group">
+                        <input type="text" id="chatApiUrl" placeholder="Chat API URL"
+                               onchange="saveVal('chatApiUrl', this.value)">
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="chatModel" placeholder="Chat Model Name"
+                               onchange="saveVal('chatModel', this.value)">
+                    </div>
+                </div>
+
+                <div class="form-group switch-row"
+                     style="margin-top:15px; border-top: 1px dashed var(--border); padding-top: 15px;">
+                    <div>
+                        <label style="margin:0">手动发送时立即触发 AI</label>
+                        <div class="desc">在日志页发送消息后自动请求回复</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="chatTrigger" onchange="saveCheck('chatTrigger', this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. 敏感密钥 -->
+        <div class="card">
+            <div class="card-header">API 密钥 (Sensitive)</div>
+            <div class="form-group">
+                <label>Gemini / LLM Key</label>
+                <input type="password" id="geminiKey" onchange="saveVal('geminiKey', this.value)">
+            </div>
+            <div class="form-group">
+                <label>火币 Base URL</label>
+                <input type="text" id="huobiUrl" placeholder="https://api.hbdm.com"
+                       onchange="saveVal('huobiUrl', this.value)">
+            </div>
+            <div class="form-group">
+                <label>Huobi Access Key</label>
+                <input type="password" id="accessKey" onchange="saveVal('accessKey', this.value)">
+            </div>
+            <div class="form-group">
+                <label>Huobi Secret Key</label>
+                <input type="password" id="secretKey" onchange="saveVal('secretKey', this.value)">
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div id="toast">已保存</div>
+
+<script>
+    // 映射表新增
+    const map = {
+        'geminiKey': 'getAIKey', 'accessKey': 'getAccessKey', 'secretKey': 'getSecretKey',
+        'systemStatus': 'getSystemStatus', 'skipWhenHolding': 'getSkipHolding',
+        'ensureValidReq': 'getEnsureValid', 'retryCount': 'getRetryCount', 'emptyAsNone': 'getEmptyAsNone',
+        'tradeInterval': 'getInterval', 'tradeSymbol': 'getSymbol', 'tradeLeverage': 'getLeverage',
+        'huobiUrl': 'getHuobiUrl',
+        'aggressionLevel': 'getAggressionLevel',
+        'volLevel0': 'getVol0', 'volLevel1': 'getVol1', 'volLevel2': 'getVol2', 'volLevel3': 'getVol3',
+        'aiApiUrl': 'getAiApiUrl', 'aiModel': 'getAiModel',
+        'chatApiUrl': 'getChatApiUrl', 'chatModel': 'getChatModel',
+        'useSameAi': 'getUseSameAi', 'chatTrigger': 'getChatTrigger',
+        // 新增
+        'useCustomStrategy': 'getUseCustomStrategy'
+    };
+
+    // 默认策略文本 (需与 Python 后端保持一致)
+    const defaultStrategies = [
+        "【极端保守策略】\n你的策略极其保守，优先关注日线级别图表。\n止损位置应设置在趋势完全反转的情况下（通常较宽），并且倾向于分批挂单。\n止盈设置在可预见的大级别阻力/支撑处。\n首要任务是本金安全，绝大部分时间选择观望，只有在确定性极高时才操作。\n几乎不去修改已有的挂单。",
+        "【稳健趋势策略】\n你的策略较为稳健，主要关注1小时到4小时图表。\n尽可能地顺应大方向趋势，绝对不开逆势的单子。\n一般选择限价单（Pending Order）等待回调成交，不追单。\n大部分时间选择观望。",
+        "【平衡/震荡策略】\n你的策略一般较为稳健，关注震荡区间。\n经常会同时持有多空两个方向的挂单（高抛低吸/网格思维）。\n根据当前是在区间上沿还是下沿来决定操作。\n止盈止损设置适中。",
+        "【激进日内策略】\n你的策略较为激进，关注15分钟到1小时图表。\n为了不错过行情，偶尔会选择市价开单（Market Order）。\n止盈止损设置较近，一般不会超过开仓价的 1%。\n追求波段利润。",
+        "【极激进/剥头皮策略】\n你的策略非常激进，关注短期动能和5分钟/15分钟图表。\n经常选择市价开单追逐波动。\n止损非常严格且极窄，一旦走势不对立即离场。\n交易频率较高。"
+    ];
+
+    const levelDescriptions = [
+        "【Lv.0 保守】极少操作。仅关注日线级别大趋势，止损极宽，分批建仓。",
+        "【Lv.1 稳健】宁缺毋滥。关注1-4小时趋势，只做顺势回调的限价单。",
+        "【Lv.2 平衡】高抛低吸。关注震荡区间，可能持有双向挂单 (网格思维)。",
+        "【Lv.3 激进】追求波段。关注15m-1h图，止损较窄，偶尔市价追单。",
+        "【Lv.4 极激进】剥头皮。关注分钟级动能，频繁市价进出，止损极严。"
+    ];
+
+    // 缓存加载的自定义策略
+    let loadedCustomStrategies = {0: null, 1: null, 2: null, 3: null, 4: null};
+    let currentLevel = 2; // 默认
+
+    function updateLevelDesc(val) {
+        currentLevel = parseInt(val);
+        document.getElementById('levelValue').innerText = val;
+        document.getElementById('levelDesc').innerText = levelDescriptions[val] || "";
+
+        // 更新文本框内容
+        updateTextareaFromCache(currentLevel);
+    }
+
+    // 滑块实时拖动处理
+    function handleLevelChange(val) {
+        updateLevelDesc(val);
+    }
+
+    function updateTextareaFromCache(level) {
+        const textarea = document.getElementById('customStrategyText');
+        // 如果缓存里有值（哪怕是空字符串也是值，只有 null 表示未加载），优先用缓存
+        // 如果缓存是空的或者是空字符串，为了方便用户编辑，填入默认值
+        let val = loadedCustomStrategies[level];
+        if (!val || val.trim() === "") {
+            val = defaultStrategies[level] || "";
         }
+        textarea.value = val;
+    }
 
-        function showToast(msg) {
-            var x = document.getElementById("toast");
-            x.innerText = msg;
-            x.className = "show";
-            setTimeout(function(){ x.className = x.className.replace("show", ""); }, 2000);
-        }
+    function showToast(msg) {
+        var x = document.getElementById("toast");
+        x.innerText = msg;
+        x.className = "show";
+        setTimeout(function () {
+            x.className = x.className.replace("show", "");
+        }, 2000);
+    }
 
-        function toggleChatConfig(checked) {
-            const opacity = checked ? '0.4' : '1';
-            const pointerEvents = checked ? 'none' : 'auto';
-            const area = document.getElementById('chatConfigArea');
-            area.style.opacity = opacity;
-            area.style.pointerEvents = pointerEvents;
-            document.getElementById('chatApiUrl').disabled = checked;
-            document.getElementById('chatModel').disabled = checked;
-        }
+    function toggleChatConfig(checked) {
+        const opacity = checked ? '0.4' : '1';
+        const pointerEvents = checked ? 'none' : 'auto';
+        const area = document.getElementById('chatConfigArea');
+        area.style.opacity = opacity;
+        area.style.pointerEvents = pointerEvents;
+        document.getElementById('chatApiUrl').disabled = checked;
+        document.getElementById('chatModel').disabled = checked;
+    }
 
-        function toggleRetryInput(checked) {
-            const div = document.getElementById('retryCountGroup');
-            div.style.display = checked ? 'block' : 'none';
-        }
+    function toggleRetryInput(checked) {
+        const div = document.getElementById('retryCountGroup');
+        div.style.display = checked ? 'block' : 'none';
+    }
 
-        // 初始化加载
-        for (let id in map) {
-            fetch(`/api/get_key/${map[id]}`)
-                .then(r => r.json())
-                .then(d => {
-                    const el = document.getElementById(id);
-                    if (el) {
-                        if (el.type === 'checkbox') {
-                            el.checked = (d.value === 'true');
-                            if(id === 'useSameAi') toggleChatConfig(el.checked);
-                            if(id === 'ensureValidReq') toggleRetryInput(el.checked);
-                        } else if (id === 'aggressionLevel') {
-                            el.value = d.value || 2;
-                            updateLevelDesc(el.value);
-                        } else {
-                            el.value = d.value;
-                        }
-                    }
-                });
-        }
+    // --- 自定义策略相关逻辑 ---
 
-        function saveVal(key, value) {
-            if (key === 'tradeInterval' && (value === '' || parseInt(value) <= 0)) return;
-            send(key, value);
+    function toggleCustomStrategy(checked) {
+        const wrapper = document.getElementById('customStrategyBox');
+        if (checked) {
+            wrapper.classList.add('open');
+        } else {
+            wrapper.classList.remove('open');
         }
-        function saveCheck(key, checked) {
-            send(key, checked ? "true" : "false");
+        saveCheck('useCustomStrategy', checked);
+    }
+
+    function saveCurrentCustomStrategy() {
+        const val = document.getElementById('customStrategyText').value;
+        // 更新缓存
+        loadedCustomStrategies[currentLevel] = val;
+        // 发送请求保存
+        send(`customStrategy${currentLevel}`, val);
+    }
+
+    // 预加载所有策略
+    function loadAllStrategies() {
+        const promises = [];
+        for (let i = 0; i <= 4; i++) {
+            promises.push(
+                fetch(`/api/get_key/getCustomStrategy${i}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        // 如果后端返回空，说明用户没设置过，此时缓存设为 null 或空串
+                        loadedCustomStrategies[i] = d.value;
+                    })
+            );
         }
-        function send(key, value) {
-            fetch('/api/set_key', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({key: key, value: value})
-            })
+        // 等所有加载完后，刷新一下当前文本框 (防止页面加载慢导致文本框是空的)
+        Promise.all(promises).then(() => {
+            updateTextareaFromCache(currentLevel);
+        });
+    }
+
+    // 初始化加载
+    loadAllStrategies(); // 立即开始加载文本
+
+    for (let id in map) {
+        fetch(`/api/get_key/${map[id]}`)
             .then(r => r.json())
             .then(d => {
-                if(d.status === 'ok') showToast("已保存");
+                const el = document.getElementById(id);
+                if (el) {
+                    if (el.type === 'checkbox') {
+                        el.checked = (d.value === 'true');
+                        if (id === 'useSameAi') toggleChatConfig(el.checked);
+                        if (id === 'ensureValidReq') toggleRetryInput(el.checked);
+                        if (id === 'useCustomStrategy') {
+                            // 初始化开关状态
+                            const wrapper = document.getElementById('customStrategyBox');
+                            if (el.checked) wrapper.classList.add('open');
+                        }
+                    } else if (id === 'aggressionLevel') {
+                        el.value = d.value || 2;
+                        updateLevelDesc(el.value); // 这里会触发一次文本框更新
+                    } else {
+                        el.value = d.value;
+                    }
+                }
+            });
+    }
+
+    function saveVal(key, value) {
+        if (key === 'tradeInterval' && (value === '' || parseInt(value) <= 0)) return;
+        send(key, value);
+    }
+
+    function saveCheck(key, checked) {
+        send(key, checked ? "true" : "false");
+    }
+
+    function send(key, value) {
+        fetch('/api/set_key', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({key: key, value: value})
+        })
+            .then(r => r.json())
+            .then(d => {
+                if (d.status === 'ok') showToast("已保存");
                 else showToast("保存失败");
             });
-        }
-    </script>
+    }
+</script>
 </body>
 </html>

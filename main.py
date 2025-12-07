@@ -10,7 +10,6 @@ from datetime import datetime, timedelta, timezone
 
 import feedparser
 import jwt
-import requests
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -32,7 +31,6 @@ parser = argparse.ArgumentParser(description='AutoHTX Server')
 group = parser.add_mutually_exclusive_group()
 group.add_argument('--generate_key', action='store_true', help='Generate new server key and clear users')
 group.add_argument('--generate_register_code', action='store_true', help='Generate a new registration code')
-group.add_argument('--update', action='store_true', help='Pull latest code from GitHub and restart server softly')
 
 if __name__ == "__main__":
     args, unknown = parser.parse_known_args()
@@ -59,40 +57,6 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Error: {e}")
             print("提示：请先运行 --generate_key 生成服务器密钥。")
-        sys.exit(0)
-
-    if args.update:
-        print(">>> 正在连接后台服务器进行更新...")
-        temp_token = jwt.encode({
-            "sub": "system_cli_admin",
-            "exp": datetime.now(timezone.utc) + timedelta(seconds=60)
-        }, SECRET_KEY, algorithm=ALGORITHM)
-
-        try:
-            resp = requests.post(
-                "http://127.0.0.1:8000/api/system/restart",
-                headers={"Authorization": f"Bearer {temp_token}"},
-                timeout=300
-            )
-
-            if resp.status_code == 200:
-                data = resp.json()
-                print(f"✅ 更新指令已发送!\nGit Output:\n{data.get('git_output', '')}")
-                print("服务器正在后台热重启 (PID 不变，日志将继续输出)...")
-            else:
-                print(f"❌ 更新请求失败: {resp.status_code} - {resp.text}")
-
-        except requests.exceptions.ConnectionError:
-            print("❌ 无法连接到服务器 (127.0.0.1:8000)。")
-            print("提示: 服务器似乎没有运行。如果是首次部署，请先直接拉取代码并启动。")
-            print("正在尝试执行本地 git pull (非热重启模式)...")
-            try:
-                subprocess.check_call(["git", "pull", "origin", "master"])
-                print("本地代码已更新。请手动启动服务器 (nohup python main.py &)。")
-            except Exception as e:
-                print(f"Git pull failed: {e}")
-        except Exception as e:
-            print(f"Error: {e}")
         sys.exit(0)
 
 # --- FastAPI App ---
@@ -234,7 +198,7 @@ def get_aggression_prompt(level_str):
             "【激进日内策略】\n"
             "你的策略较为激进，关注15分钟到1小时图表。\n"
             "为了不错过行情，偶尔会选择市价开单（Market Order）。\n"
-            "止盈止损设置较近，止损一般不会超过开仓价的 1%。\n"
+            "止盈止损设置较近，一般不会超过开仓价的 1%。\n"
             "追求波段利润。"
         )
     elif level == 4:
@@ -421,7 +385,19 @@ async def build_ai_context(user_id, symbol):
 
     # 2. 策略
     agg_level = db.get_config(user_id, "aggression_level") or "2"
-    strategy_prompt = get_aggression_prompt(agg_level)
+
+    use_custom = db.get_config(user_id, "use_custom_strategy") == "true"
+    strategy_prompt = ""
+
+    if use_custom:
+        # 尝试获取当前等级的自定义策略
+        custom_text = db.get_config(user_id, f"custom_strategy_{agg_level}")
+        if custom_text and custom_text.strip():
+            strategy_prompt = custom_text
+
+    # 如果没有开启自定义，或者自定义内容为空，使用默认生成的
+    if not strategy_prompt:
+        strategy_prompt = get_aggression_prompt(agg_level)
 
     # 3. 历史交互日志 (User Input & AI Summary & Chat AI)
     logs = db.get_context_logs(user_id, limit=10)
@@ -612,42 +588,6 @@ async def run_and_update(user_id, slot, interval):
             del retry_tracker[user_id]
 
 
-# --- 系统更新 API ---
-
-@app.post("/api/system/restart")
-async def system_restart(user_id=Depends(login_required)):
-    if user_id != "system_cli_admin":
-        raise HTTPException(status_code=403, detail="Permission denied")
-
-    repo_url = "https://github.com/Zhizhu0/autoHTX.git"
-    git_output = ""
-
-    try:
-        if not os.path.exists(".git"):
-            subprocess.check_call(["git", "init"])
-            subprocess.check_call(["git", "remote", "add", "origin", repo_url])
-            subprocess.check_call(["git", "fetch", "--all"])
-            subprocess.check_call(["git", "reset", "--hard", "origin/main"])
-            subprocess.check_call(["git", "branch", "-M", "main"])
-            git_output += "Initialized git repo and reset to origin/main.\n"
-
-        proc = subprocess.run(["git", "pull", "origin", "main"], capture_output=True, text=True)
-        git_output += proc.stdout + "\n" + proc.stderr
-        if proc.returncode != 0:
-            return {"status": "error", "git_output": git_output, "msg": "Git pull failed"}
-    except Exception as e:
-        return {"status": "error", "git_output": git_output, "msg": str(e)}
-
-    loop = asyncio.get_running_loop()
-    loop.call_later(1.0, _do_restart)
-    return {"status": "ok", "git_output": git_output, "msg": "Server restarting..."}
-
-
-def _do_restart():
-    print(">>> Restarting process via os.execv (Hot Reload)...")
-    os.execv(sys.executable, [sys.executable, "main.py"])
-
-
 # --- 登录注册路由 ---
 
 @app.get("/login", response_class=HTMLResponse)
@@ -826,8 +766,13 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
         "getAiApiUrl": "ai_api_url", "getAiModel": "ai_model",
         "getChatApiUrl": "chat_api_url", "getChatModel": "chat_model",
         "getUseSameAi": "use_same_ai", "getChatTrigger": "chat_trigger_immediate",
-        # 新增
-        "getRetryCount": "max_retry_count"
+        "getRetryCount": "max_retry_count",
+        "getUseCustomStrategy": "use_custom_strategy",
+        "getCustomStrategy0": "custom_strategy_0",
+        "getCustomStrategy1": "custom_strategy_1",
+        "getCustomStrategy2": "custom_strategy_2",
+        "getCustomStrategy3": "custom_strategy_3",
+        "getCustomStrategy4": "custom_strategy_4",
     }
     db_key = CONFIG_MAP.get(key_name)
     if not db_key: return {"value": ""}
@@ -856,8 +801,13 @@ async def set_key(data: dict, user_id=Depends(login_required)):
         "aiApiUrl": "ai_api_url", "aiModel": "ai_model",
         "chatApiUrl": "chat_api_url", "chatModel": "chat_model",
         "useSameAi": "use_same_ai", "chatTrigger": "chat_trigger_immediate",
-        # 新增
-        "retryCount": "max_retry_count"
+        "retryCount": "max_retry_count",
+        "useCustomStrategy": "use_custom_strategy",
+        "customStrategy0": "custom_strategy_0",
+        "customStrategy1": "custom_strategy_1",
+        "customStrategy2": "custom_strategy_2",
+        "customStrategy3": "custom_strategy_3",
+        "customStrategy4": "custom_strategy_4",
     }
     key_name = data.get("key")
     if key_name in FRONTEND_TO_DB_MAP:

@@ -1,0 +1,36 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy using SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.AUTUHTX }}
+          script: |
+            # 1. 进入项目目录 (请修改为你服务器上的实际路径)
+            cd /root/ubuntu/autoHTX
+
+            # 2. 拉取最新代码
+            git pull origin main
+
+            # 3. 安装依赖 (可选，如果 requirements.txt 变动了)
+            pip install -r requirements.txt
+
+            # 4. 查找并杀掉旧进程
+            # 解释：查找 python main.py 的进程，排除 grep 自身，获取 PID，如果有则 kill
+            ps -ef | grep 'python3 main.py' | grep -v grep | awk '{print $2}' | xargs -r kill -9
+
+            # 5. 启动新进程
+            # 注意：必须重定向输入输出，否则 GitHub Action 会一直转圈等待结束
+            nohup /root/ubuntu/autoHTX/venv/bin/python3 main.py > output.log 2>&1 &
+            
+            echo "Deployment finished!"
