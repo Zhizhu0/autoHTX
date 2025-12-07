@@ -32,6 +32,6 @@ jobs:
 
             # 5. 启动新进程
             # 注意：必须重定向输入输出，否则 GitHub Action 会一直转圈等待结束
-            nohup /root/ubuntu/autoHTX/venv/bin/python3 main.py > output.log 2>&1 &
+            nohup /home/ubuntu/autoHTX/venv/bin/python3 main.py > output.log 2>&1 &
             
             echo "Deployment finished!"
