@@ -20,10 +20,10 @@ jobs:
             cd /home/ubuntu/autoHTX
 
             # 2. 拉取最新代码
-            git pull origin main
+            git pull origin master
 
             # 3. 安装依赖 (可选，如果 requirements.txt 变动了)
-            pip install -r requirements.txt
+            /home/ubuntu/autoHTX/venv/bin/pip install -r requirements.txt
 
             # 4. 查找并杀掉旧进程
             # 解释：查找 python main.py 的进程，排除 grep 自身，获取 PID，如果有则 kill
