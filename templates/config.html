@@ -394,9 +394,21 @@
                     <div class="desc">如果有该币种持仓，则不进行 AI 分析</div>
                 </div>
                 <label class="switch">
-                    <input type="checkbox" id="skipWhenHolding" onchange="saveCheck('skipWhenHolding', this.checked)">
+                    <input type="checkbox" id="skipWhenHolding"
+                           onchange="toggleSkipCountInput(this.checked); saveCheck('skipWhenHolding', this.checked)">
                     <span class="slider"></span>
                 </label>
+            </div>
+
+            <div class="form-group" id="skipCountGroup"
+                 style="display:none; margin-left: 20px; border-left: 3px solid var(--border); padding-left: 10px;">
+                <label>最大连续跳过次数</label>
+                <input type="number" id="skipCount" placeholder="-1 为永远跳过"
+                       onchange="saveVal('skipCount', this.value)">
+                <div class="desc">
+                    <b>-1</b>: 只要有持仓就永远跳过。<br>
+                    <b>正数</b>: 例如 3，连续跳过 3 次后，下次将强制请求 AI 审视持仓。
+                </div>
             </div>
 
             <div class="form-group">
@@ -538,7 +550,8 @@
     // 映射表新增
     const map = {
         'geminiKey': 'getAIKey', 'accessKey': 'getAccessKey', 'secretKey': 'getSecretKey',
-        'systemStatus': 'getSystemStatus', 'skipWhenHolding': 'getSkipHolding',
+        'systemStatus': 'getSystemStatus',
+        'skipWhenHolding': 'getSkipHolding', 'skipCount': 'getSkipCount', // 新增
         'ensureValidReq': 'getEnsureValid', 'retryCount': 'getRetryCount', 'emptyAsNone': 'getEmptyAsNone',
         'tradeInterval': 'getInterval', 'tradeSymbol': 'getSymbol', 'tradeLeverage': 'getLeverage',
         'huobiUrl': 'getHuobiUrl',
@@ -621,6 +634,11 @@
         div.style.display = checked ? 'block' : 'none';
     }
 
+    function toggleSkipCountInput(checked) {
+        const div = document.getElementById('skipCountGroup');
+        div.style.display = checked ? 'block' : 'none';
+    }
+
     // --- 自定义策略相关逻辑 ---
 
     function toggleCustomStrategy(checked) {
@@ -673,6 +691,7 @@
                         el.checked = (d.value === 'true');
                         if (id === 'useSameAi') toggleChatConfig(el.checked);
                         if (id === 'ensureValidReq') toggleRetryInput(el.checked);
+                        if (id === 'skipWhenHolding') toggleSkipCountInput(el.checked);
                         if (id === 'useCustomStrategy') {
                             // 初始化开关状态
                             const wrapper = document.getElementById('customStrategyBox');

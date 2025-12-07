@@ -286,7 +286,7 @@ async def gather_market_data(user_id, symbol):
             info_text += "持仓: "
             positions = acc_info.get('positions', [])
             if positions:
-                for p in positions: info_text += f"[{p['direction']} {p['volume']}张 盈亏:{p['profit']}] "
+                for p in positions: info_text += f"[{p['direction']} {p['volume']}张 开仓均价：{p['cost_open']} 盈亏：{p['profit']}] "
             else:
                 info_text += "无"
 
@@ -294,7 +294,7 @@ async def gather_market_data(user_id, symbol):
             orders = acc_info.get('orders', [])
             if orders:
                 for o in orders:
-                    info_text += f"[{o['direction']} {o['offset']} {o['volume']}张 价格:{o['price']} id:{o['order_id_str']}] "
+                    info_text += f"[{o['direction']} {o['offset']} {o['volume']}张 价格：{o['price']} id：{o['order_id_str']}] "
             else:
                 info_text += "无"
 
@@ -303,7 +303,7 @@ async def gather_market_data(user_id, symbol):
                 tpsl_orders = tpsl['data'].get('orders', [])
                 if tpsl_orders:
                     for t in tpsl_orders:
-                        info_text += f"【TP/SL】{t['direction']} {t['volume']}张 触发价格: {t['trigger_price']}\n"
+                        info_text += f"【TP/SL】{t['direction']} {t['volume']}张 触发价格：{t['trigger_price']}\n"
                 else:
                     info_text += "无TP/SL"
             else:
@@ -439,9 +439,42 @@ async def run_automated_trading(user_id, force=False):
 
         if not force:
             skip = db.get_config(user_id, "skip_when_holding") == "true"
-            if skip and len(context_data['positions']) > 0:
-                db.add_log(user_id, "SYSTEM", "持仓跳过")
-                return True
+            # 检查是否有持仓
+            has_positions = len(context_data['positions']) > 0
+
+            if skip and has_positions:
+                # 获取最大允许跳过次数
+                max_skip_str = db.get_config(user_id, "max_skip_count")
+                try:
+                    max_skip_count = int(max_skip_str) if max_skip_str else -1
+                except:
+                    max_skip_count = -1
+
+                # 如果设置了正数，则启用计数逻辑 (使用 DB 持久化)
+                if max_skip_count >= 0:
+                    # 从数据库获取当前跳过次数
+                    current_skip_str = db.get_config(user_id, "system_skip_count")
+                    current_skip = int(current_skip_str) if current_skip_str and current_skip_str.isdigit() else 0
+
+                    if current_skip >= max_skip_count:
+                        db.add_log(user_id, "SYSTEM", f"持仓跳过次数达到上限 ({current_skip})，强制分析")
+                    else:
+                        # 增加计数并写入 DB
+                        db.set_config(user_id, "system_skip_count", str(current_skip + 1))
+                        db.add_log(user_id, "SYSTEM", f"持仓跳过 ({current_skip + 1}/{max_skip_count})")
+                        return True
+                else:
+                    # 默认逻辑：无限跳过
+                    db.add_log(user_id, "SYSTEM", "持仓跳过")
+                    return True
+            else:
+                # 如果没有持仓，或者没开启跳过，重置计数器 (写入 DB)
+                # 只有当 'skip and has_positions' 这个条件不满足时才重置
+                if not has_positions:
+                     db.set_config(user_id, "system_skip_count", "0")
+
+        # 如果能执行到这里，说明进行了 AI 分析，此时也应该重置跳过计数器 (写入 DB)
+        db.set_config(user_id, "system_skip_count", "0")
 
         schema = {
             "summary": "对当前操作的评价或解释，一般不超过50字",
@@ -759,7 +792,9 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
     CONFIG_MAP = {
         "getAIKey": "gemini_key", "getAccessKey": "access_key", "getSecretKey": "secret_key",
         "getSystemStatus": "is_active", "getInterval": "trade_interval", "getSymbol": "trade_symbol",
-        "getLeverage": "trade_leverage", "getHuobiUrl": "huobi_api_url", "getSkipHolding": "skip_when_holding",
+        "getLeverage": "trade_leverage", "getHuobiUrl": "huobi_api_url",
+        "getSkipHolding": "skip_when_holding",
+        "getSkipCount": "max_skip_count", # 新增
         "getEnsureValid": "ensure_valid_req", "getEmptyAsNone": "empty_as_none",
         "getVol0": "vol_level_0", "getVol1": "vol_level_1", "getVol2": "vol_level_2", "getVol3": "vol_level_3",
         "getAggressionLevel": "aggression_level",
@@ -783,7 +818,8 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
         "getSymbol": "ETH-USDT", "getLeverage": "5", "getInterval": "60", "getAggressionLevel": "2",
         "getAiApiUrl": "https://api.gemai.cc/v1/chat/completions",
         "getAiModel": "[满血A]gemini-3-pro-preview",
-        "getRetryCount": "-1" # 默认无限
+        "getRetryCount": "-1", # 默认无限
+        "getSkipCount": "-1"   # 默认无限
     }
     if val == "" and key_name in defaults: val = defaults[key_name]
     return {"value": val}
@@ -794,7 +830,9 @@ async def set_key(data: dict, user_id=Depends(login_required)):
     FRONTEND_TO_DB_MAP = {
         "geminiKey": "gemini_key", "accessKey": "access_key", "secretKey": "secret_key",
         "systemStatus": "is_active", "tradeInterval": "trade_interval", "tradeSymbol": "trade_symbol",
-        "tradeLeverage": "trade_leverage", "huobiUrl": "huobi_api_url", "skipWhenHolding": "skip_when_holding",
+        "tradeLeverage": "trade_leverage", "huobiUrl": "huobi_api_url",
+        "skipWhenHolding": "skip_when_holding",
+        "skipCount": "max_skip_count", # 新增
         "ensureValidReq": "ensure_valid_req", "emptyAsNone": "empty_as_none",
         "volLevel0": "vol_level_0", "volLevel1": "vol_level_1", "volLevel2": "vol_level_2", "volLevel3": "vol_level_3",
         "aggressionLevel": "aggression_level",
