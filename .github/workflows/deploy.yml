@@ -9,30 +9,39 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy using SSH
+      # 1. 先在 GitHub Action 环境里把代码拉下来
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. 把代码通过 SCP 上传到服务器 (排除 .git, venv 等不需要的文件)
+      - name: Copy files via SSH
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.AUTUHTX }}
+          source: "."
+          target: "/home/ubuntu/autoHTX"
+          # 重要：排除虚拟环境和git文件夹，只传代码
+          rm: false  # 是否删除目标文件夹下的所有文件？建议 false，只覆盖
+          strip_components: 0
+          exclude: ".git,venv,__pycache__,*.log,*.pyc"
+
+      # 3. 连上服务器重启服务 (去掉了 git pull)
+      - name: Restart Server
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.AUTUHTX }}
           script: |
-            # 1. 进入项目目录 (请修改为你服务器上的实际路径)
             cd /home/ubuntu/autoHTX
-
-            # 2. 拉取最新代码
-            git config --global http.postBuffer 524288000
-            git config --global http.sslVerify false
-            git pull origin master
-
-            # 3. 安装依赖 (可选，如果 requirements.txt 变动了)
+            
+            # 安装依赖
             /home/ubuntu/autoHTX/venv/bin/pip install -r requirements.txt
 
-            # 4. 查找并杀掉旧进程
-            # 解释：查找 python main.py 的进程，排除 grep 自身，获取 PID，如果有则 kill
+            # 重启进程
             ps -ef | grep 'python3 main.py' | grep -v grep | awk '{print $2}' | xargs -r kill -9
-
-            # 5. 启动新进程
-            # 注意：必须重定向输入输出，否则 GitHub Action 会一直转圈等待结束
             nohup /home/ubuntu/autoHTX/venv/bin/python3 main.py > output.log 2>&1 &
             
-            echo "Deployment finished!"
+            echo "Deployment finished via SCP!"
