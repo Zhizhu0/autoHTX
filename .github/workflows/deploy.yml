@@ -21,6 +21,7 @@ jobs:
 
             # 2. 拉取最新代码
             git config --global http.postBuffer 524288000
+            git config --global http.sslVerify false
             git pull origin master
 
             # 3. 安装依赖 (可选，如果 requirements.txt 变动了)
