@@ -125,9 +125,6 @@ class GeminiClient:
                 else:
                     raise Exception("AI返回内容为空")
 
-            print("--- AI Raw Content ---")
-            print(content)
-
             # --- 修改开始：使用增强的提取逻辑 ---
 
             # 1. 尝试直接解析整个内容（防止 AI 只返回了纯 JSON）
@@ -169,7 +166,6 @@ class GeminiClient:
         api_url, model = self._get_api_config(is_chat_mode=True)
         try:
             content = self._call_llm(api_url, model, system_prompt, user_text, images_base64)
-            print(content)
 
             final_response = self._clean_thought_process(content)
 
