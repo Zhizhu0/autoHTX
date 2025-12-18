@@ -337,6 +337,16 @@
                 <div class="desc">每次 AI 分析之间的时间间隔</div>
             </div>
 
+            <div class="form-group">
+                <label>API 出错重试次数</label>
+                <input type="number" id="apiRetryCount" min="0" placeholder="0 表示不重试"
+                       onchange="saveVal('apiRetryCount', this.value)">
+                <div class="desc">
+                    当交易所 API 请求失败时（如超时/网络错误），立即重试的次数。<br>
+                    次数用尽后将跳过并使用“获取失败”提示词继续流程。
+                </div>
+            </div>
+
             <div class="form-group switch-row">
                 <div>
                     <label style="margin:0">出错立即重试</label>
@@ -555,12 +565,12 @@
         'ensureValidReq': 'getEnsureValid', 'retryCount': 'getRetryCount', 'emptyAsNone': 'getEmptyAsNone',
         'tradeInterval': 'getInterval', 'tradeSymbol': 'getSymbol', 'tradeLeverage': 'getLeverage',
         'huobiUrl': 'getHuobiUrl',
+        'apiRetryCount': 'getApiRetryCount',
         'aggressionLevel': 'getAggressionLevel',
         'volLevel0': 'getVol0', 'volLevel1': 'getVol1', 'volLevel2': 'getVol2', 'volLevel3': 'getVol3',
         'aiApiUrl': 'getAiApiUrl', 'aiModel': 'getAiModel',
         'chatApiUrl': 'getChatApiUrl', 'chatModel': 'getChatModel',
         'useSameAi': 'getUseSameAi', 'chatTrigger': 'getChatTrigger',
-        // 新增
         'useCustomStrategy': 'getUseCustomStrategy'
     };
 

@@ -873,7 +873,8 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
         "getSystemStatus": "is_active", "getInterval": "trade_interval", "getSymbol": "trade_symbol",
         "getLeverage": "trade_leverage", "getHuobiUrl": "huobi_api_url",
         "getSkipHolding": "skip_when_holding",
-        "getSkipCount": "max_skip_count", # 新增
+        "getApiRetryCount": "api_max_retry",
+        "getSkipCount": "max_skip_count",
         "getEnsureValid": "ensure_valid_req", "getEmptyAsNone": "empty_as_none",
         "getVol0": "vol_level_0", "getVol1": "vol_level_1", "getVol2": "vol_level_2", "getVol3": "vol_level_3",
         "getAggressionLevel": "aggression_level",
@@ -911,7 +912,8 @@ async def set_key(data: dict, user_id=Depends(login_required)):
         "systemStatus": "is_active", "tradeInterval": "trade_interval", "tradeSymbol": "trade_symbol",
         "tradeLeverage": "trade_leverage", "huobiUrl": "huobi_api_url",
         "skipWhenHolding": "skip_when_holding",
-        "skipCount": "max_skip_count", # 新增
+        "apiRetryCount": "api_max_retry",
+        "skipCount": "max_skip_count",
         "ensureValidReq": "ensure_valid_req", "emptyAsNone": "empty_as_none",
         "volLevel0": "vol_level_0", "volLevel1": "vol_level_1", "volLevel2": "vol_level_2", "volLevel3": "vol_level_3",
         "aggressionLevel": "aggression_level",
