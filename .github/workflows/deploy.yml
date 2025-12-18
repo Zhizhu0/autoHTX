@@ -41,7 +41,15 @@ jobs:
             /home/ubuntu/autoHTX/venv/bin/pip install -r requirements.txt
 
             # 重启进程
-            ps -ef | grep 'python3 main.py' | grep -v grep | awk '{print $2}' | xargs -r kill -9
+            echo "1. Killing old process..."
+            
+            fuser -k 8000/tcp || echo "Port 8000 was free"
+
+            # 关键：等待 3 秒，让操作系统释放端口，否则立即重启容易报错
+            sleep 3
+
+            echo "2. Starting new process..."
+            # 这里的 > output.log 2>&1 确保所有报错都写入日志
             nohup /home/ubuntu/autoHTX/venv/bin/python3 main.py > output.log 2>&1 &
             
-            echo "Deployment finished via SCP!"
+            echo "3. Deployment finished!"
