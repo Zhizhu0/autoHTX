@@ -244,7 +244,7 @@ class StorageManager:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("""
-            SELECT level, message FROM logs 
+            SELECT timestamp, level, message FROM logs 
             WHERE user_id=? AND level IN ('SUMMARY', 'USER_INPUT', 'CHAT_AI') 
             ORDER BY id DESC LIMIT ?
         """, (user_id, limit))

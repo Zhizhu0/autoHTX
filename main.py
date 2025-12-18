@@ -403,14 +403,14 @@ async def build_ai_context(user_id, symbol):
     logs = db.get_context_logs(user_id, limit=10)
     log_history_text = "\n【近期交互记录】\n"
     if logs:
-        for l_level, l_msg in logs:
+        for l_ts, l_level, l_msg in logs:
             if l_level == "USER_INPUT":
                 prefix = "User: "
             elif l_level == "CHAT_AI":
                 prefix = "Chat AI: "
             else:
                 prefix = "Analysis AI: "  # for SUMMARY
-            log_history_text += f"{prefix}{l_msg}\n"
+            log_history_text += f"[{l_ts}] {prefix}{l_msg}\n"
     else:
         log_history_text += "无\n"
 
@@ -477,42 +477,100 @@ async def run_automated_trading(user_id, force=False):
         db.set_config(user_id, "system_skip_count", "0")
 
         schema = {
-            "summary": "对当前操作的评价或解释，一般不超过50字",
+            "analysis": "这里用中文详细分析技术面核心逻辑（如：RSI超卖金叉，回踩EMA20支撑）",
+            "position_check": "这里用中文明确持仓状态（如：'持有ETH多单(均价3000)，当前价格2900已跌破1%，触发补仓逻辑' 或 '价格未变，拒绝重复开单'）",
             "do": [
                 {
                     "action": "GO_LONG | GO_SHORT | CLOSE_LONG | CLOSE_SHORT | CANCEL",
-                    "price": "价格(纯数字，市价填0)",
-                    "amount_level": "0-3整数 (0极轻, 1轻, 2中, 3重)",
-                    "order_id": "撤单ID(可选)",
-                    "take_profit": "止盈价格",
-                    "stop_loss": "止损价格"
+                    "price": "价格 (纯数字, 市价填 0)",
+                    "amount_level": "0-3整数 (0:极轻仓, 1:轻仓, 2:中仓, 3:重仓)",
+                    "order_id": "撤单ID (仅 CANCEL 时必填)",
+                    "take_profit": "止盈价格 (必须设置)",
+                    "stop_loss": "止损价格 (必须设置)"
                 }
-            ]
+            ],
+            "summary": "给用户的最终中文回复，解释决策理由（50字以内，语气专业）"
         }
 
         # SysPrompt
         sys_prompt = f"""
-你是一个专业的加密货币交易员 AI。
-你只会回复纯净的 JSON 格式字符串。
-【通用规则】
-1. 参考最新市场新闻及 K 线图。
-2. 结合 4 张 K 线图进行技术分析。
-3. 优先关注压力位和阻力位。
-4. 【重要】检查用户当前持仓和挂单，避免重复开仓。旧挂单如果不合适请先 CANCEL。
-5. 用户的挂单永远有设置止盈止损，不要认为无TP/SL。
-6. 参考用户的交互记录指令。如果用户指令中有错误，请忽略，不要试图解决错误。特别注意最后一条用户消息，如果没有ai回复，则最好回应一下。
+        # Role
+        You are an expert **Crypto Quantitative Trader AI**.
+        Your objective is to make profitable and safe trading decisions based on market data.
 
-【输出格式】
-{json.dumps(schema, indent=4, ensure_ascii=False)}
+        # Output Format Protocol (CRITICAL)
+        You must structure your response in two distinct parts:
 
-不需要操作时，返回 {{"summary": "理由", "do": []}}。
-"""
+        **Part 1: The Deep Thinking Process**
+        Enclose your reasoning inside `<thought>` tags. 
+        In this section, you must write a detailed, unstructured analysis in **English or Chinese**. You must act like a strict risk manager debating with a trader.
+        You must cover:
+        1. **Market Structure:** Analyze the 4 K-line charts (Trend, EMA, RSI, Bollinger Bands). Identify Key Support/Resistance levels.
+        2. **Account Audit:** Look at `current_positions` and `open_orders`. 
+        3. **Strategy Check:** Decide if this is a new entry, a text-book add-on (DCA/Pyramid), or a wait.
+        4. **Final Decision:** Conclude exactly what to do before generating the JSON.
+
+        **Part 2: The Execution Command**
+        After the thinking process, output the final result in a **JSON Code Block**.
+        Format:
+        ```json
+        {json.dumps(schema, indent=4, ensure_ascii=False)}
+        ```
+
+        # Rules of Engagement
+
+        1. **Data Driven:** 
+           Base logic ONLY on provided OHLCV and account data. Do NOT hallucinate.
+
+        2. **Smart Position Management (The Logic Tree):**
+           - **Case A: No Position:** If signals align -> Open New Position.
+           - **Case B: Redundant Orders (FORBIDDEN):** If you already hold a position and the current price is very close (< 0.5% diff) to the entry price -> **Do NOT open** a new order. This is wasting fees.
+           - **Case C: Strategic Adds (ALLOWED):** You MAY add to a position (DCA or Trend Pyramid) **ONLY IF**:
+             1. The price has moved significantly (e.g., >1% drop for Long DCA, or Breakout for Pyramid).
+             2. AND technical indicators confirm the move.
+             3. AND total position size remains safe.
+
+        3. **Risk Control:** 
+           - NEVER open a trade without Stop Loss (SL) and Take Profit (TP).
+           - If `open_orders` contains outdated pending orders, issue `CANCEL` instructions first.
+
+        4. **User Interaction:** 
+           - If the user's last message is a question, answer it in the `summary` field inside the JSON.
+
+        # Example Response Structure
+        <thought>
+        1. Market: ETH dropped to 2900, hitting daily support. RSI is oversold.
+        2. Account: User holds Long from 3000. Current PnL is -3.3%.
+        3. Logic Check: Price gap is >1% and support held. This is a valid DCA opportunity, NOT a redundant order.
+        4. Plan: Open small Long to average down.
+        </thought>
+
+        ```json
+        {{
+            "analysis": "ETH回踩日线支撑位2900，RSI进入超卖区，存在反弹需求。",
+            "position_check": "当前持有均价3000的多单，现价2900偏离幅度超3%，符合DCA补仓条件。",
+            "do": [
+                {{
+                    "action": "GO_LONG",
+                    "price": "2900",
+                    "amount_level": "1",
+                    "take_profit": "3050",
+                    "stop_loss": "2850"
+                }}
+            ],
+            "summary": "触及关键支撑，且偏离持仓均价较多，建议轻仓补仓以摊低成本。"
+        }}
+        ```
+        """
 
         ai = GeminiClient(user_id)
         db.add_log(user_id, "AI", f"请求分析(Lv.{agg_level})...")
         result = await asyncio.to_thread(ai.get_analysis, sys_prompt, user_prompt, images)
 
         if 'summary' in result: db.add_log(user_id, "SUMMARY", result['summary'])
+        if 'analysis' in result: db.add_log(user_id, "ANALYSIS", result['analysis'])
+        if 'position_check' in result: db.add_log(user_id, "POSITION_CHECK", result['position_check'])
+
 
         actions = result.get('do', [])
         if not actions:
@@ -768,12 +826,33 @@ async def trigger_chat(user_id=Depends(login_required)):
     async def _chat_task():
         try:
             symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
+            # 获取上下文
             user_prompt, images, _, _ = await build_ai_context(user_id, symbol)
 
-            sys_prompt = "你是一个加密货币交易助手。请根据提供的市场数据、账户状态和近期日志回答用户，如果用户的最后一条消息没有ai回应，优先回应这个消息。保持简洁，客观，不要使用Emoji，不要输出JSON格式，不要用Markdown格式，尽量不换行，直接以纯文本回答。"
+            sys_prompt = """
+            # Role
+            You are an expert Crypto Trading Assistant. Your goal is to answer user inquiries accurately based on market data and interaction history.
+
+            # Instructions
+            1. **Analyze First:** Before answering, you MUST think deeply about the user's intent, the current market structure (Trend, Indicators, Account Position), and previous logs.
+            2. **Format:**
+               - Put your thinking process inside `<thought>` tags in **English**.
+               - Put your final response to the user outside the tags in **Chinese**.
+            3. **Style:** Be professional, concise, and objective. Do not use Markdown unless necessary. Do not use Emojis.
+
+            # Example
+            User: Should I close my long position?
+            Assistant:
+            <thought>
+            User holds ETH long at 3000. Current price is 3100. RSI is 75 (Overbought). 
+            Logic: Profit is secured, but trend is strong. Suggest partial close or trailing stop.
+            </thought>
+            建议你考虑分批止盈。目前RSI显示超买，虽然趋势向上，但回调风险增加。可以先平掉一半仓位锁定利润，剩下的设置移动止损。
+            """
 
             ai = GeminiClient(user_id)
             response = await asyncio.to_thread(ai.get_chat_response, sys_prompt, user_prompt, images)
+
             db.add_log(user_id, "CHAT_AI", response)
         except Exception as e:
             db.add_log(user_id, "CHAT_ERR", str(e))
