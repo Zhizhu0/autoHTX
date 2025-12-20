@@ -353,8 +353,6 @@ async def execute_trade_action(user_id, action, positions, symbol, leverage):
             elif act_type == "CLOSE_LONG":
                 # 平仓逻辑：如果 AI 指定了 amount，则尝试平该数量
                 # 如果 AI 没给 amount 或 amount > 持仓，可以默认全部平或者按最大持仓平
-                # 这里我们假设 AI 返回的 amount 是有效的，但也做一下保护
-                # 为了简化，如果 AI 返回的 amount 对 Close 来说也生效
                 vol_to_close = volume
 
                 # 校验持仓是否足够 (可选优化)
@@ -411,6 +409,26 @@ async def build_ai_context(user_id, symbol):
     if not strategy_prompt:
         strategy_prompt = get_aggression_prompt(agg_level)
 
+    # [新增] 获取开仓数量等级并注入到用户提示词
+    def get_vol(lvl, default):
+        val = db.get_config(user_id, f"vol_level_{lvl}")
+        return int(val) if val and val.isdigit() else default
+
+    v0 = get_vol(0, 1)
+    v1 = get_vol(1, 5)
+    v2 = get_vol(2, 10)
+    v3 = get_vol(3, 20)
+
+    # 构造数量提示文本
+    vol_prompt = f"""
+【用户开仓数量参考】
+等级0: {v0}
+等级1: {v1}
+等级2: {v2}
+等级3: {v3}
+说明：请参考上述等级决定具体的开仓数量(amount)，必须严格限制最大数量不超过等级3 ({v3})。
+"""
+
     # 3. 历史交互日志 (User Input & AI Summary & Chat AI)
     logs = db.get_context_logs(user_id, limit=10)
     log_history_text = "\n【近期交互记录】\n"
@@ -426,8 +444,12 @@ async def build_ai_context(user_id, symbol):
     else:
         log_history_text += "无\n"
 
-    final_prompt = f"当前时间:{datetime.now()}\n{context_data['text']}\n【核心策略配置】\n{strategy_prompt}\n{log_history_text}"
-    return final_prompt, images, context_data, agg_level
+    # [修改] 将 vol_prompt 加入到 final_prompt
+    final_prompt = f"当前时间:{datetime.now()}\n{context_data['text']}\n{vol_prompt}\n【核心策略配置】\n{strategy_prompt}\n{log_history_text}"
+
+    # [修改] 返回 v3 供风控使用
+    vol_limits = {'v3': v3}
+    return final_prompt, images, context_data, agg_level, vol_limits
 
 
 async def run_automated_trading(user_id, force=False):
@@ -446,18 +468,11 @@ async def run_automated_trading(user_id, force=False):
         symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
         leverage = db.get_config(user_id, "trade_leverage") or 5
 
-        # 构建上下文
-        user_prompt, images, context_data, agg_level = await build_ai_context(user_id, symbol)
+        # 构建上下文 [修改] 接收 vol_limits
+        user_prompt, images, context_data, agg_level, vol_limits = await build_ai_context(user_id, symbol)
 
-        # [新增] 获取用户配置的开仓数量等级
-        def get_vol(lvl, default):
-            val = db.get_config(user_id, f"vol_level_{lvl}")
-            return int(val) if val and val.isdigit() else default
-
-        v0 = get_vol(0, 1)
-        v1 = get_vol(1, 5)
-        v2 = get_vol(2, 10)
-        v3 = get_vol(3, 20)
+        # 获取等级3的最大限制
+        max_vol_limit = vol_limits.get('v3', 20)
 
         if not force:
             skip = db.get_config(user_id, "skip_when_holding") == "true"
@@ -522,15 +537,11 @@ async def run_automated_trading(user_id, force=False):
                 Your objective is to make profitable and safe trading decisions based on market data.
 
                 # Position Sizing Strategy (CRITICAL)
-                You MUST decide the specific trade volume (`amount`) based on the user's reference levels:
-                - Level 0 (Tiny): {v0}
-                - Level 1 (Small): {v1}
-                - Level 2 (Medium): {v2}
-                - Level 3 (Heavy): {v3}
+                You MUST decide the specific trade volume (`amount`) based on the **User Open Position Quantity Reference** provided in the user context/prompt.
 
                 **Rules for Amount:**
-                1. These levels are references. You ARE ALLOWED to choose a specific number (e.g., 8) based on your confidence (e.g., between Lv1 and Lv2).
-                2. **STRICT LIMIT:** The `amount` MUST NOT exceed the Level 3 value ({v3}).
+                1. These levels (Level 0-3) in the user prompt are references. You ARE ALLOWED to choose a specific number (e.g., 8) based on your confidence.
+                2. **STRICT LIMIT:** The `amount` MUST NOT exceed the value of Level 3 provided in the user prompt.
                 3. Generally, stick to the user's reference levels unless you have a strong reason to adjust.
                 4. For closing positions, output the `amount` you wish to close.
 
@@ -578,19 +589,18 @@ async def run_automated_trading(user_id, force=False):
             db.add_log(user_id, "ACTION", "观望")
         else:
             for act in actions:
-                # 强制风控逻辑：检查 amount 是否超过 Level 3
+                # [新增] 强制风控逻辑：检查 amount 是否超过 Level 3
                 raw_amount = int(act.get('amount', 0))
                 act_type = act.get('action')
 
-                # 仅针对开仓动作进行强制限制，平仓通常受持仓量限制
+                # 仅针对开仓动作进行强制限制
                 if act_type in ["GO_LONG", "GO_SHORT"]:
-                    if raw_amount > v3:
+                    if raw_amount > max_vol_limit:
                         db.add_log(user_id, "RISK_CTRL",
-                                   f"AI请求开仓数量 {raw_amount} 超过等级3上限 ({v3})，强制修正为 {v3}")
-                        act['amount'] = v3
+                                   f"AI请求开仓数量 {raw_amount} 超过等级3上限 ({max_vol_limit})，强制修正为 {max_vol_limit}")
+                        act['amount'] = max_vol_limit
                     elif raw_amount <= 0:
-                        # 防止 AI 返回 0 或负数导致报错，虽然 huobi api 可能也会拦截
-                        # 如果是市价单，0可能不合法，这里设为最低 1
+                        # 防止 AI 返回 0 或负数导致报错
                         act['amount'] = 1
 
                 await execute_trade_action(user_id, act, context_data['positions'], symbol, leverage)
@@ -629,8 +639,6 @@ async def scheduler_loop():
                 last_slot = int(last_slot_str) if last_slot_str else -1
 
                 if current_slot != last_slot:
-                    # 这里不再只是简单打印，而是进入带有重试计数的执行逻辑
-                    # 只有当第一次尝试时才记录日志，避免刷屏
                     tracker = retry_tracker.get(user_id, {})
                     if tracker.get("slot") != current_slot:
                         db.add_log(user_id, "SCHEDULER", f"触发定时任务 ({interval}m)")
@@ -643,55 +651,39 @@ async def scheduler_loop():
 
 
 async def run_and_update(user_id, slot, interval):
-    # 1. 初始化或更新计数器
     if user_id not in retry_tracker or retry_tracker[user_id]["slot"] != slot:
         retry_tracker[user_id] = {"slot": slot, "count": 0}
 
     retry_tracker[user_id]["count"] += 1
     current_attempt = retry_tracker[user_id]["count"]
 
-    # 2. 执行任务
     success = await run_automated_trading(user_id, force=False)
 
-    # 3. 获取重试配置
     should_retry = db.get_config(user_id, "ensure_valid_req") == "true"
     max_retries_str = db.get_config(user_id, "max_retry_count")
-    # 默认为 -1 (无限重试)，保持向后兼容
     try:
         max_retries = int(max_retries_str) if max_retries_str else -1
     except:
         max_retries = -1
 
-    # 4. 判断是否结束本次时间槽的任务
     finish_task = False
 
     if success:
         finish_task = True
     elif not should_retry:
-        # 失败了，但没开启重试 -> 结束
         finish_task = True
     else:
-        # 失败了，且开启了重试 -> 检查次数
         if max_retries < 0:
-            # 负数：无限重试，不做操作，等待下一次循环
             pass
         elif max_retries == 0:
-            # 0次重试：等同于不重试 -> 结束
             finish_task = True
         else:
-            # 正数：检查是否超过 (当前尝试次数 > 最大重试次数)
-            # 例如 max=3。第1次失败(1>3 False)，第2次(2>3 False)，第3次(3>3 False)，第4次(4>3 True) -> 结束
-            # 这里的 max_retries 指的是“重试”次数。总尝试次数 = 1 + max_retries
             if current_attempt > max_retries:
                 db.add_log(user_id, "SYSTEM", f"重试次数耗尽 ({max_retries}次)，跳过本次任务")
                 finish_task = True
-            else:
-                # 还可以重试
-                pass
 
     if finish_task:
         db.set_config(user_id, "last_run_slot", str(slot))
-        # 清理内存
         if user_id in retry_tracker:
             del retry_tracker[user_id]
 
@@ -762,7 +754,6 @@ async def config_page(request: Request, user_id=Depends(login_required)):
 
 @app.get("/logs_view", response_class=HTMLResponse)
 async def logs_page(request: Request, user_id=Depends(login_required)):
-    # 限制改为 200
     logs = db.get_recent_logs(user_id, 200)
     log_text = "\n".join([f"[{l[0]}] [{l[1]}] {l[2]}" for l in logs]) + "\n"
     trigger_immediate = db.get_config(user_id, "chat_trigger_immediate") == "true"
@@ -782,7 +773,8 @@ async def show_prompt_page(request: Request, user_id=Depends(login_required)):
 async def get_show_data(user_id=Depends(login_required)):
     try:
         symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
-        user_prompt, images, context, agg_level = await build_ai_context(user_id, symbol)
+        # [修改] 忽略最后的 vol_limits
+        user_prompt, images, context, agg_level, _ = await build_ai_context(user_id, symbol)
         return {"status": "ok", "prompt": user_prompt, "images": images}
     except Exception as e:
         return {"status": "error", "msg": str(e)}
@@ -808,10 +800,9 @@ async def send_user_message(data: dict, user_id=Depends(login_required)):
 
 @app.post("/api/delete_logs")
 async def delete_logs_endpoint(data: dict, user_id=Depends(login_required)):
-    mode = data.get("mode", "all")  # 'all' or 'useless'
+    mode = data.get("mode", "all")
     try:
         db.delete_logs(user_id, mode)
-        # 记录一条新日志说明操作
         if mode == "all":
             db.add_log(user_id, "SYSTEM", "已清空所有日志")
         else:
@@ -821,7 +812,6 @@ async def delete_logs_endpoint(data: dict, user_id=Depends(login_required)):
         return {"status": "error", "msg": str(e)}
 
 
-# 新增：获取最新日志的接口 (用于重连后刷新)
 @app.get("/api/get_logs")
 async def get_recent_logs_endpoint(user_id=Depends(login_required)):
     logs = db.get_recent_logs(user_id, 200)
@@ -831,7 +821,6 @@ async def get_recent_logs_endpoint(user_id=Depends(login_required)):
 
 @app.post("/api/trigger_chat")
 async def trigger_chat(user_id=Depends(login_required)):
-    # 状态锁定：如果正在聊天中，拒绝请求
     if GlobalState.is_chatting(user_id):
         return {"status": "error", "msg": "Chat AI is busy"}
 
@@ -910,13 +899,12 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
     if not db_key: return {"value": ""}
 
     val = db.get_config(user_id, db_key)
-    # 默认值
     defaults = {
         "getSymbol": "ETH-USDT", "getLeverage": "5", "getInterval": "60", "getAggressionLevel": "2",
         "getAiApiUrl": "https://api.gemai.cc/v1/chat/completions",
         "getAiModel": "[满血A]gemini-3-pro-preview",
-        "getRetryCount": "-1",  # 默认无限
-        "getSkipCount": "-1"  # 默认无限
+        "getRetryCount": "-1",
+        "getSkipCount": "-1"
     }
     if val == "" and key_name in defaults: val = defaults[key_name]
     return {"value": val}
@@ -976,7 +964,6 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     await ws_manager.connect(websocket, user_id)
-    # 连接时发送当前所有状态
     await ws_manager.broadcast_status(user_id)
     try:
         while True:
