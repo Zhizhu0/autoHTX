@@ -332,17 +332,16 @@ async def execute_trade_action(user_id, action, positions, symbol, leverage):
     def _sync_exec():
         act_type = action.get('action')
         price = float(action.get('price', 0))
-        level = int(action.get('amount_level', 0))
+        # [修改] 不再使用 amount_level 映射，直接使用 AI 提供的 amount
+        # 默认值为 1，以防万一
+        try:
+            volume = int(action.get('amount', 1))
+        except:
+            volume = 1
+
         order_id = action.get('order_id')
         take_profit = float(action.get('take_profit', 0) or 0)
         stop_loss = float(action.get('stop_loss', 0) or 0)
-
-        def get_vol(lvl, default):
-            val = db.get_config(user_id, f"vol_level_{lvl}")
-            return int(val) if val and val.isdigit() else default
-
-        vol_map = {0: get_vol(0, 1), 1: get_vol(1, 5), 2: get_vol(2, 10), 3: get_vol(3, 20)}
-        volume = vol_map.get(level, 1)
 
         db.add_log(user_id, "EXEC", f"{act_type} {symbol} P:{price} V:{volume}")
 
@@ -352,29 +351,37 @@ async def execute_trade_action(user_id, action, positions, symbol, leverage):
             elif act_type == "GO_SHORT":
                 huobi.place_cross_order(symbol, "sell", "open", volume, price, take_profit, stop_loss, leverage)
             elif act_type == "CLOSE_LONG":
-                vol_to_close = 0
+                # 平仓逻辑：如果 AI 指定了 amount，则尝试平该数量
+                # 如果 AI 没给 amount 或 amount > 持仓，可以默认全部平或者按最大持仓平
+                # 这里我们假设 AI 返回的 amount 是有效的，但也做一下保护
+                # 为了简化，如果 AI 返回的 amount 对 Close 来说也生效
+                vol_to_close = volume
+
+                # 校验持仓是否足够 (可选优化)
+                total_long = 0
                 for p in positions:
                     if p['direction'] == "buy":
-                        if level == 1:
-                            vol_to_close = int(p['volume']) // 3
-                        elif level == 2:
-                            vol_to_close = int(p['volume']) // 2
-                        elif level == 3:
-                            vol_to_close = int(p['volume'])
+                        total_long += int(p['volume'])
+
+                if vol_to_close > total_long:
+                    vol_to_close = total_long
+
                 if vol_to_close > 0:
                     huobi.place_cross_order(symbol, "sell", "close", vol_to_close, price, 0, 0, leverage)
+
             elif act_type == "CLOSE_SHORT":
-                vol_to_close = 0
+                vol_to_close = volume
+                total_short = 0
                 for p in positions:
                     if p['direction'] == "sell":
-                        if level == 1:
-                            vol_to_close = int(p['volume']) // 3
-                        elif level == 2:
-                            vol_to_close = int(p['volume']) // 2
-                        elif level == 3:
-                            vol_to_close = int(p['volume'])
+                        total_short += int(p['volume'])
+
+                if vol_to_close > total_short:
+                    vol_to_close = total_short
+
                 if vol_to_close > 0:
                     huobi.place_cross_order(symbol, "buy", "close", vol_to_close, price, 0, 0, leverage)
+
             elif act_type == "CANCEL":
                 if order_id: huobi.cancel_cross_order(symbol, order_id)
         except Exception as e:
@@ -442,6 +449,16 @@ async def run_automated_trading(user_id, force=False):
         # 构建上下文
         user_prompt, images, context_data, agg_level = await build_ai_context(user_id, symbol)
 
+        # [新增] 获取用户配置的开仓数量等级
+        def get_vol(lvl, default):
+            val = db.get_config(user_id, f"vol_level_{lvl}")
+            return int(val) if val and val.isdigit() else default
+
+        v0 = get_vol(0, 1)
+        v1 = get_vol(1, 5)
+        v2 = get_vol(2, 10)
+        v3 = get_vol(3, 20)
+
         if not force:
             skip = db.get_config(user_id, "skip_when_holding") == "true"
             # 检查是否有持仓
@@ -481,6 +498,7 @@ async def run_automated_trading(user_id, force=False):
         # 如果能执行到这里，说明进行了 AI 分析，此时也应该重置跳过计数器 (写入 DB)
         db.set_config(user_id, "system_skip_count", "0")
 
+        # [修改] Schema 中的 amount_level 更改为 amount
         schema = {
             "analysis": "Detailed technical analysis of the market structure in Simplified Chinese (e.g., 'RSI在75处超卖，价格受阻于EMA200').",
             "position_check": "Explicit status of current holdings in Simplified Chinese (e.g., '当前持有ETH多单，均价3000，浮盈2%').",
@@ -488,7 +506,7 @@ async def run_automated_trading(user_id, force=False):
                 {
                     "action": "GO_LONG | GO_SHORT | CLOSE_LONG | CLOSE_SHORT | CANCEL",
                     "price": "Price (numeric only, use 0 for Market Order)",
-                    "amount_level": "Integer 0-3 (0:Tiny, 1:Small, 2:Medium, 3:Heavy)",
+                    "amount": "Integer (Specific number of contracts/sheets)",
                     "order_id": "Order ID (Required only for CANCEL action)",
                     "take_profit": "Take Profit Price (Mandatory)",
                     "stop_loss": "Stop Loss Price (Mandatory)"
@@ -503,67 +521,48 @@ async def run_automated_trading(user_id, force=False):
                 You are an expert **Crypto Quantitative Trader AI**.
                 Your objective is to make profitable and safe trading decisions based on market data.
 
+                # Position Sizing Strategy (CRITICAL)
+                You MUST decide the specific trade volume (`amount`) based on the user's reference levels:
+                - Level 0 (Tiny): {v0}
+                - Level 1 (Small): {v1}
+                - Level 2 (Medium): {v2}
+                - Level 3 (Heavy): {v3}
+
+                **Rules for Amount:**
+                1. These levels are references. You ARE ALLOWED to choose a specific number (e.g., 8) based on your confidence (e.g., between Lv1 and Lv2).
+                2. **STRICT LIMIT:** The `amount` MUST NOT exceed the Level 3 value ({v3}).
+                3. Generally, stick to the user's reference levels unless you have a strong reason to adjust.
+                4. For closing positions, output the `amount` you wish to close.
+
                 # Operational Rules & Assumptions
                 1. **Multi-Step Deduction:** Do NOT jump to conclusions. You must perform a step-by-step reasoning process in your `<thought>` block:
                    - Step 1: Macro Trend Identification (Daily/4H).
                    - Step 2: Momentum & Volatility Analysis (RSI, Bollinger Bands).
                    - Step 3: Key Level Validation (Support/Resistance).
-                   - Step 4: Account Risk Audit (Current exposure vs. logic).
-                   - Step 5: Final Execution Plan.
+                   - Step 4: Account Risk Audit.
+                   - Step 5: Final Execution Plan (Decide Action & Specific Amount).
 
-                2. **Pending Order Assumption:** If `open_orders` exist in the provided data, **ASSUME they already have valid Take Profit (TP) and Stop Loss (SL) attached**. Do NOT issue CANCEL commands simply to re-set TP/SL, unless the market structure has invalidated the original trade idea.
+                2. **Pending Order Assumption:** If `open_orders` exist, **ASSUME they already have valid TP/SL**.
 
                 3. **Language Protocol:** 
-                   - The `<thought>` process should be in **English** (for better logic).
-                   - The JSON output fields (`analysis`, `position_check`, `summary`) MUST be in **Simplified Chinese** (for the user).
+                   - The `<thought>` process should be in **English**.
+                   - The JSON output fields (`analysis`, `position_check`, `summary`) MUST be in **Simplified Chinese**.
 
-                # Output Format Protocol (CRITICAL)
-                You must structure your response in two distinct parts:
-
-                **Part 1: The Deep Thinking Process**
-                Enclose your reasoning inside `<thought>` tags. 
-                Act like a strict risk manager debating with a trader. 
-
-                **Part 2: The Execution Command**
-                After the thinking process, output the final result in a **JSON Code Block**.
+                # Output Format Protocol
+                **Part 1: The Deep Thinking Process** inside `<thought>` tags. 
+                **Part 2: The Execution Command** inside a JSON Code Block.
                 Format:
                 ```json
                 {json.dumps(schema, indent=4)}
                 ```
 
                 # Logic & Risk Control
-                1. **Data Driven:** Base logic ONLY on provided OHLCV and account data. Do NOT hallucinate.
+                1. **Data Driven:** Base logic ONLY on provided OHLCV and account data.
                 2. **Position Management:**
                    - **Case A (No Position):** Signal aligns -> Open New Position.
-                   - **Case B (Redundant):** If holding a position and current price is close (< 0.5% diff) to entry -> **NO ACTION**.
-                   - **Case C (DCA/Add):** ONLY add if price moved significantly (>1% adverse for DCA, or breakout for Pyramid) AND indicators confirm.
+                   - **Case B (Redundant):** If holding a position and current price is close -> **NO ACTION**.
+                   - **Case C (DCA/Add):** ONLY add if price moved significantly AND indicators confirm.
                 3. **Safety:** NEVER open a trade without TP and SL.
-
-                # Example Response Structure
-                <thought>
-                Step 1 Trend: 4H chart shows a bullish trend, price above EMA50.
-                Step 2 Momentum: RSI is at 45, neutral.
-                Step 3 Levels: Price is retesting the 3000 support level.
-                Step 4 Account: No current positions. No pending orders.
-                Step 5 Decision: Good Risk/Reward ratio to go long at 3000.
-                </thought>
-
-                ```json
-                {{
-                    "analysis": "4小时级别价格回踩EMA50支撑（3000附近），RSI指标中性，显示调整可能结束。",
-                    "position_check": "当前无持仓，资金利用率为0%。",
-                    "do": [
-                        {{
-                            "action": "GO_LONG",
-                            "price": "3000",
-                            "amount_level": "1",
-                            "take_profit": "3150",
-                            "stop_loss": "2920"
-                        }}
-                    ],
-                    "summary": "回踩关键支撑位，盈亏比合适，建议轻仓试多。"
-                }}
-                ```
                 """
 
         ai = GeminiClient(user_id)
@@ -579,6 +578,21 @@ async def run_automated_trading(user_id, force=False):
             db.add_log(user_id, "ACTION", "观望")
         else:
             for act in actions:
+                # 强制风控逻辑：检查 amount 是否超过 Level 3
+                raw_amount = int(act.get('amount', 0))
+                act_type = act.get('action')
+
+                # 仅针对开仓动作进行强制限制，平仓通常受持仓量限制
+                if act_type in ["GO_LONG", "GO_SHORT"]:
+                    if raw_amount > v3:
+                        db.add_log(user_id, "RISK_CTRL",
+                                   f"AI请求开仓数量 {raw_amount} 超过等级3上限 ({v3})，强制修正为 {v3}")
+                        act['amount'] = v3
+                    elif raw_amount <= 0:
+                        # 防止 AI 返回 0 或负数导致报错，虽然 huobi api 可能也会拦截
+                        # 如果是市价单，0可能不合法，这里设为最低 1
+                        act['amount'] = 1
+
                 await execute_trade_action(user_id, act, context_data['positions'], symbol, leverage)
 
         db.add_log(user_id, "SUCCESS", "流程结束")
