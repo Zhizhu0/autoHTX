@@ -20,6 +20,7 @@ from ai_service import GeminiClient
 from chart_engine import ChartGenerator
 from huobi_api import HuobiClient
 from storage import db
+from market_manager import market_manager
 
 # JWT 配置 (必须保持一致)
 SECRET_KEY = "AUTOHTX_SECRET_KEY_PLEASE_CHANGE"
@@ -267,20 +268,36 @@ def get_latest_news():
 async def gather_market_data(user_id, symbol):
     huobi = HuobiClient(user_id)
 
-    def _sync_gather():
+    # 定义内部函数处理非 IO 密集型操作 (绘图 + 文本拼接)
+    def _sync_process():
         data_context = {}
         chart_images = []
+
+        # --- 修改点：从内存获取 K 线数据 ---
+        # 映射 main.py 的命名习惯到 market_manager 的习惯
+        # main: 15min, 1hour, 4hour, 1day
+        # manager internal: 15min, 60min, 4hour, 1day
         periods = [('15min', '15min'), ('1hour', '1hour'), ('4hour', '4hour'), ('1day', '1day')]
+
         for pid, p_name in periods:
-            df = huobi.get_kline(symbol, pid)
+            # 优先从内存取
+            df = market_manager.get_data(symbol, pid)
+            if df.empty:
+                # 如果内存没有（比如刚启动还没连上），回退到 API (Blocking)
+                print(f"Warning: Cache miss for {symbol} {pid}, fetching via API")
+                df = huobi.get_kline(symbol, pid)
+
             img = chart_gen.generate_chart_base64(df, f"{symbol} {p_name}")
             chart_images.append(img)
+        # -------------------------------
 
         news = get_latest_news()
         info_text = news + "\n" + f"【{symbol} 市场/账户】\n"
 
         try:
+            # 账户信息仍然需要实时 API，因为这是私有数据
             acc_info = huobi.get_account_info(symbol)
+            # market_detail 可以保留 API，也可以从 WS 数据里取最新价，这里维持 API 简单点
             market_detail = huobi.get_market_detail(symbol)
             tpsl = huobi.get_tpsl_openorders(symbol)
 
@@ -323,7 +340,7 @@ async def gather_market_data(user_id, symbol):
 
         return data_context, chart_images
 
-    return await asyncio.to_thread(_sync_gather)
+    return await asyncio.to_thread(_sync_process)
 
 
 async def execute_trade_action(user_id, action, positions, symbol, leverage):
@@ -773,10 +790,40 @@ async def show_prompt_page(request: Request, user_id=Depends(login_required)):
 async def get_show_data(user_id=Depends(login_required)):
     try:
         symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
-        # [修改] 忽略最后的 vol_limits
-        user_prompt, images, context, agg_level, _ = await build_ai_context(user_id, symbol)
+
+        # 这里为了给前端极致的速度，我们只生成图表和 Prompt 预览，不调用私有账户 API
+        # 因为 /api/get_show_data 主要用于看 prompt 结构和图表状态
+
+        # 1. 直接从内存拿图表
+        # periods = [('15min', '15min'), ('1hour', '1hour'), ('4hour', '4hour'), ('1day', '1day')]
+
+        # # 这一步是 CPU 密集型 (绘图)，放入线程池
+        # def _draw():
+        #     imgs = []
+        #     for pid, p_name in periods:
+        #         df = market_manager.get_data(symbol, pid)
+        #         # 如果内存为空（比如 symbol 不匹配），尝试临时拉取一次或者返回空图
+        #         if df.empty:
+        #             print(f"Warning: No data for {symbol} {pid}, trying to fetch from Huobi")
+        #             huobi = HuobiClient(user_id)
+        #             df = huobi.get_kline(symbol, pid)
+        #
+        #         img = chart_gen.generate_chart_base64(df, f"{symbol} {p_name}")
+        #         imgs.append(img)
+        #     return imgs
+        #
+        # images = await asyncio.to_thread(_draw)
+
+        print(time.time(), "build_ai_context start")
+
+        user_prompt, images, _, _, _ = await build_ai_context(user_id, symbol)
+
+        print(time.time(), "build_ai_context end")
+
         return {"status": "ok", "prompt": user_prompt, "images": images}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"status": "error", "msg": str(e)}
 
 
@@ -977,7 +1024,34 @@ async def websocket_endpoint(websocket: WebSocket):
 async def startup_event():
     global main_event_loop
     main_event_loop = asyncio.get_running_loop()
+
+    # 1. 启动调度器
     asyncio.create_task(scheduler_loop())
+
+    # 2. 初始化并启动 WebSocket 数据流
+    # 这里我们简单取第一个活跃用户或默认用户的配置来决定监控哪个币种
+    # 实际生产中可能需要监控所有用户关注的不同币种
+    try:
+        # 简单起见，我们先扫描一下数据库里的 trade_symbol，或者默认 ETH-USDT
+        # 由于 StorageManager 没有直接获取所有 symbol 的方法，我们这里暂时用硬编码或默认
+        # 更佳的做法是在 scheduler_loop 里动态检测需要监控的 symbol
+        default_symbol = "ETH-USDT"
+
+        # 尝试读取系统管理员或其他用户的配置
+        active_users = db.get_all_active_users()
+        if active_users:
+            sym = db.get_config(active_users[0], "trade_symbol")
+            if sym: default_symbol = sym
+
+        # 只有存在有效 user_id 时才能调用 HuobiClient 初始化历史数据
+        # 如果是全新的系统，可能没有 active_users，这里做个容错
+        init_user_id = active_users[0] if active_users else "system_cli_admin"
+
+        await market_manager.initialize_data(init_user_id, default_symbol)
+        asyncio.create_task(market_manager.start_ws_loop())
+
+    except Exception as e:
+        print(f"Market Manager Startup Error: {e}")
 
 
 if __name__ == "__main__":
