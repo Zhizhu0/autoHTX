@@ -476,7 +476,7 @@ async def run_automated_trading(user_id, force=False):
                 # 如果没有持仓，或者没开启跳过，重置计数器 (写入 DB)
                 # 只有当 'skip and has_positions' 这个条件不满足时才重置
                 if not has_positions:
-                     db.set_config(user_id, "system_skip_count", "0")
+                    db.set_config(user_id, "system_skip_count", "0")
 
         # 如果能执行到这里，说明进行了 AI 分析，此时也应该重置跳过计数器 (写入 DB)
         db.set_config(user_id, "system_skip_count", "0")
@@ -576,7 +576,6 @@ async def run_automated_trading(user_id, force=False):
         if 'analysis' in result: db.add_log(user_id, "ANALYSIS", result['analysis'])
         if 'position_check' in result: db.add_log(user_id, "POSITION_CHECK", result['position_check'])
 
-
         actions = result.get('do', [])
         if not actions:
             db.add_log(user_id, "ACTION", "观望")
@@ -597,6 +596,7 @@ async def run_automated_trading(user_id, force=False):
 # --- 调度器 ---
 
 retry_tracker = {}
+
 
 async def scheduler_loop():
     print(">>> 多用户交易调度器已启动")
@@ -903,8 +903,8 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
         "getSymbol": "ETH-USDT", "getLeverage": "5", "getInterval": "60", "getAggressionLevel": "2",
         "getAiApiUrl": "https://api.gemai.cc/v1/chat/completions",
         "getAiModel": "[满血A]gemini-3-pro-preview",
-        "getRetryCount": "-1", # 默认无限
-        "getSkipCount": "-1"   # 默认无限
+        "getRetryCount": "-1",  # 默认无限
+        "getSkipCount": "-1"  # 默认无限
     }
     if val == "" and key_name in defaults: val = defaults[key_name]
     return {"value": val}
