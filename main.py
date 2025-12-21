@@ -880,7 +880,7 @@ async def trigger_chat(user_id=Depends(login_required)):
         try:
             symbol = db.get_config(user_id, "trade_symbol") or "ETH-USDT"
             # 获取上下文
-            user_prompt, images, _, _ = await build_ai_context(user_id, symbol)
+            user_prompt, images, _, _, _ = await build_ai_context(user_id, symbol)
 
             sys_prompt = """
             # Role

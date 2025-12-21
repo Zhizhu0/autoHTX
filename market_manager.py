@@ -1,14 +1,12 @@
 import asyncio
-import json
 import gzip
+import json
 import logging
-import time
-import os
-from datetime import datetime
-import pandas as pd
+
 import aiohttp
+import pandas as pd
+
 from huobi_api import HuobiClient
-from storage import db  # <--- 引入数据库以获取配置
 
 # 配置日志
 logger = logging.getLogger("MarketManager")
@@ -25,41 +23,13 @@ class MarketDataManager:
             cls._instance.active_symbol = "ETH-USDT"
             cls._instance.periods = ['15min', '60min', '4hour', '1day']
             cls._instance.running = False
-            # 默认官方地址，后续会被 initialize_data 覆盖
-            cls._instance.ws_url = "wss://api.hbdm.com/linear-swap-ws"
+            cls._instance.ws_url = "wss://autohtx.top/linear-swap-ws"
         return cls._instance
 
     async def initialize_data(self, user_id, symbol):
         """启动前先通过 REST API 拉取历史数据填满内存，并配置 WS 地址"""
         self.active_symbol = symbol
         huobi = HuobiClient(user_id)
-
-        # --- [新增] 从数据库读取 Base URL 并转换为 WS 地址 ---
-        # 获取用户配置的 REST URL (例如 https://your-worker.workers.dev)
-        base_url = db.get_config(user_id, "huobi_api_url")
-        if not base_url:
-            base_url = "https://autohtx.top"
-
-        # 去除末尾斜杠
-        base_url = base_url.rstrip('/')
-
-        # 协议转换: https -> wss, http -> ws
-        if base_url.startswith("https://"):
-            ws_base = base_url.replace("https://", "wss://", 1)
-        elif base_url.startswith("http://"):
-            ws_base = base_url.replace("http://", "ws://", 1)
-        else:
-            # 如果没写协议头，默认走 wss
-            ws_base = f"wss://{base_url}"
-
-        # 拼接线性合约 WS 路径
-        # 注意：Cloudflare Worker 通常会透传路径，所以我们保留 /linear-swap-ws
-        self.ws_url = f"{ws_base}/linear-swap-ws"
-
-        print(f">>> [MarketManager] 初始化配置:")
-        print(f"    - REST URL: {base_url}")
-        print(f"    - WS URL  : {self.ws_url}")
-        # -----------------------------------------------------
 
         async with self.lock:
             if symbol not in self.data_store:
@@ -93,7 +63,6 @@ class MarketDataManager:
         while self.running:
             url = self.ws_url
 
-            print(f">>> [MarketManager] 准备连接 WS: {url}")
             try:
                 # trust_env=True 读取系统代理
                 # ssl=False 忽略证书验证 (这对 Cloudflare 也是安全的，因为中间链路加密)
