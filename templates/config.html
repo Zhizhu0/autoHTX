@@ -421,6 +421,28 @@
                 </div>
             </div>
 
+            <div class="form-group switch-row">
+                <div>
+                    <label style="margin:0">价格偏移时强制分析</label>
+                    <div class="desc">持仓盈亏变动较大时，强制触发 AI 分析</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="forceAnalysisDeviation"
+                           onchange="toggleDeviationInput(this.checked); saveCheck('forceAnalysisDeviation', this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="form-group" id="deviationGroup"
+                 style="display:none; margin-left: 20px; border-left: 3px solid var(--border); padding-left: 10px;">
+                <label>触发阈值 (%)</label>
+                <input type="number" id="deviationThreshold" step="0.1" min="0.01" placeholder="0.5"
+                       onchange="saveVal('deviationThreshold', this.value)">
+                <div class="desc">
+                    当任意持仓的现价与开仓均价差距超过此百分比时（例如 0.5%），<br>忽略跳过设置，强制进行分析。
+                </div>
+            </div>
+
             <div class="form-group">
                 <div style="display:flex; justify-content:space-between;">
                     <label>策略激进程度</label>
@@ -571,7 +593,9 @@
         'aiApiUrl': 'getAiApiUrl', 'aiModel': 'getAiModel',
         'chatApiUrl': 'getChatApiUrl', 'chatModel': 'getChatModel',
         'useSameAi': 'getUseSameAi', 'chatTrigger': 'getChatTrigger',
-        'useCustomStrategy': 'getUseCustomStrategy'
+        'useCustomStrategy': 'getUseCustomStrategy',
+        'forceAnalysisDeviation': 'getForceAnalysisDeviation',
+        'deviationThreshold': 'getDeviationThreshold',
     };
 
     // 默认策略文本 (需与 Python 后端保持一致)
@@ -646,6 +670,11 @@
 
     function toggleSkipCountInput(checked) {
         const div = document.getElementById('skipCountGroup');
+        div.style.display = checked ? 'block' : 'none';
+    }
+
+    function toggleDeviationInput(checked) {
+        const div = document.getElementById('deviationGroup');
         div.style.display = checked ? 'block' : 'none';
     }
 

@@ -303,7 +303,9 @@ async def gather_market_data(user_id, symbol):
 
             if 'tick' in market_detail:
                 tick = market_detail['tick']
-                info_text += f"现价: {tick.get('close')}\n"
+                curr_price = float(tick.get('close', 0))  # 获取浮点数价格
+                info_text += f"现价: {curr_price}\n"
+                data_context['current_price'] = curr_price  # 存入上下文供逻辑判断使用
 
             info_text += "持仓: "
             positions = acc_info.get('positions', [])
@@ -495,6 +497,29 @@ async def run_automated_trading(user_id, force=False):
             skip = db.get_config(user_id, "skip_when_holding") == "true"
             # 检查是否有持仓
             has_positions = len(context_data['positions']) > 0
+
+            force_by_deviation = False
+            if has_positions:
+                use_deviation = db.get_config(user_id, "force_analysis_deviation_switch") == "true"
+                if use_deviation:
+                    try:
+                        threshold_str = db.get_config(user_id, "force_analysis_deviation_threshold")
+                        threshold = float(threshold_str) if threshold_str else 0.5
+                        current_price = context_data.get('current_price', 0)
+
+                        if current_price > 0:
+                            for pos in context_data['positions']:
+                                avg_price = float(pos.get('cost_open', 0))
+                                if avg_price > 0:
+                                    # 计算百分比偏移
+                                    dev = abs(current_price - avg_price) / avg_price * 100
+                                    if dev >= threshold:
+                                        db.add_log(user_id, "SYSTEM",
+                                                   f"监测到价格偏移 {dev:.2f}% > {threshold}%，强制触发分析")
+                                        force_by_deviation = True
+                                        break
+                    except Exception as e:
+                        print(f"Deviation check error: {e}")
 
             if skip and has_positions:
                 # 获取最大允许跳过次数
@@ -941,6 +966,8 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
         "getCustomStrategy2": "custom_strategy_2",
         "getCustomStrategy3": "custom_strategy_3",
         "getCustomStrategy4": "custom_strategy_4",
+        "getForceAnalysisDeviation": "force_analysis_deviation_switch",
+        "getDeviationThreshold": "force_analysis_deviation_threshold",
     }
     db_key = CONFIG_MAP.get(key_name)
     if not db_key: return {"value": ""}
@@ -951,7 +978,8 @@ async def get_key(key_name: str, user_id=Depends(login_required)):
         "getAiApiUrl": "https://api.gemai.cc/v1/chat/completions",
         "getAiModel": "[满血A]gemini-3-pro-preview",
         "getRetryCount": "-1",
-        "getSkipCount": "-1"
+        "getSkipCount": "-1",
+        "getDeviationThreshold": "0.5",
     }
     if val == "" and key_name in defaults: val = defaults[key_name]
     return {"value": val}
@@ -979,6 +1007,8 @@ async def set_key(data: dict, user_id=Depends(login_required)):
         "customStrategy2": "custom_strategy_2",
         "customStrategy3": "custom_strategy_3",
         "customStrategy4": "custom_strategy_4",
+        "forceAnalysisDeviation": "force_analysis_deviation_switch",
+        "deviationThreshold": "force_analysis_deviation_threshold",
     }
     key_name = data.get("key")
     if key_name in FRONTEND_TO_DB_MAP:
